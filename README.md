@@ -178,22 +178,6 @@ WebSocket 通过短期票据认证，不把 token 放入 URL。推送触发 HTTP
 
 管理、上传和历史回调由适配器接管；AI 与 `onCall` 仍需接自己的服务。服务端联系人及当前用户资料优先于可选的本地备份。重新登录后，打开会话加载最近 50 条历史；当前接口没有跨登录的服务端未读游标。
 
-### 本地 Laravel 项目
-
-相邻的 `../packages` 项目使用 `"giorgio-im": "link:../giorgio-im"`，演示入口按包名导入，修改本包后重新构建即可更新：
-
-```bash
-cd ../packages
-composer install
-pnpm install
-pnpm run build:im
-pnpm run im:demo
-```
-
-打开 `http://127.0.0.1:8001/im` 注册或登录。新用户自动加入 GIORGIO-IM 群，并向所有已有用户发送好友申请；收件人在消息盒子里选择分组并同意后互加好友。页面不再提供预设账号或双用户测试入口。
-
-启动脚本使用独立 SQLite 数据库和 Redis 实例。服务端配置、接口与部署方式见 [Laravel 接入文档](../packages/docs/im.md)。
-
 ## Vue 组件方式
 
 ```vue
