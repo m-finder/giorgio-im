@@ -1,5 +1,5 @@
 {
-  "name": "giorgio-im",
+  "name": "@m-finder/giorgio-im",
   "version": "0.1.0",
   "description": "A drop-in Vue 3 instant messaging widget",
   "license": "MIT",
@@ -10,6 +10,10 @@
   "homepage": "https://github.com/m-finder/giorgio-im#readme",
   "bugs": {
     "url": "https://github.com/m-finder/giorgio-im/issues"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
   },
   "type": "module",
   "files": ["dist"],
@@ -26,6 +30,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "prepack": "npm run build",
     "test": "vitest run",
     "typecheck": "vue-tsc --noEmit"
   },
