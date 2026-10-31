@@ -8,7 +8,7 @@
 
 ## 界面预览
 
-![Giorgio IM 聊天窗口、联系人列表与新消息通知](docs/images/chat-preview.png)
+![Giorgio IM 聊天窗口、联系人列表与新消息通知](https://raw.githubusercontent.com/m-finder/giorgio-im/main/docs/images/chat-preview.png)
 
 ## 功能概览
 
@@ -73,9 +73,9 @@ npm run dev
 3. 安装组件：
 
    ```bash
-   npm install @m-finder/giorgio-im@^0.1.0
+   npm install @m-finder/giorgio-im@^0.1.1
    # 或
-   pnpm add @m-finder/giorgio-im@^0.1.0
+   pnpm add @m-finder/giorgio-im@^0.1.1
    ```
 
 出现 401 / 403 时，先检查 token 是否过期、是否具有 `read:packages` 权限，以及登录 registry 是否为 `https://npm.pkg.github.com`。GitHub Actions 中安装时，应配置具有包读取权限的令牌；使用其他仓库的 `GITHUB_TOKEN` 时，还需为该仓库授予包的 Actions 访问权限。
@@ -89,7 +89,7 @@ npm run dev
 npm pack
 
 # 在你的 Vue 项目中，替换为实际文件路径
-npm install /path/to/giorgio-im/m-finder-giorgio-im-0.1.0.tgz
+npm install /path/to/giorgio-im/m-finder-giorgio-im-0.1.1.tgz
 ```
 
 下文均使用包名 `@m-finder/giorgio-im` 导入。在支持 Vue SFC 和 Vite CSS 内联导入的源码项目中，也可直接引用本仓库的 `src/index.ts`。

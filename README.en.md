@@ -8,7 +8,7 @@ The component provides contacts, conversations, message rendering and chat contr
 
 ## Preview
 
-![Giorgio IM chat window, contacts and incoming message notification](docs/images/chat-preview.png)
+![Giorgio IM chat window, contacts and incoming message notification](https://raw.githubusercontent.com/m-finder/giorgio-im/main/docs/images/chat-preview.png)
 
 ## Features
 
@@ -73,9 +73,9 @@ Requires Vue **3.3 or later**. The package is published on [GitHub Packages](htt
 3. Install the component:
 
    ```bash
-   npm install @m-finder/giorgio-im@^0.1.0
+   npm install @m-finder/giorgio-im@^0.1.1
    # Or
-   pnpm add @m-finder/giorgio-im@^0.1.0
+   pnpm add @m-finder/giorgio-im@^0.1.1
    ```
 
 For 401 / 403 errors, check token expiration, the `read:packages` permission and that you logged in to `https://npm.pkg.github.com`. GitHub Actions installations need a token with package read access; using another repository's `GITHUB_TOKEN` also requires granting that repository Actions access to the package.
@@ -89,7 +89,7 @@ You can also pack this repository and install the generated archive:
 npm pack
 
 # In your Vue project; replace with the actual package path
-npm install /path/to/giorgio-im/m-finder-giorgio-im-0.1.0.tgz
+npm install /path/to/giorgio-im/m-finder-giorgio-im-0.1.1.tgz
 ```
 
 The examples below import from `@m-finder/giorgio-im`. Source projects that support Vue SFCs and Vite's inline CSS imports can also import this repository's `src/index.ts` directly.
