@@ -52,23 +52,52 @@ The Chinese and English demos keep separate profiles, friends, categories and ch
 
 ### Install in your project
 
-Requires Vue **3.3 or later**. Build and pack this repository, then install the generated package in your application:
+Requires Vue **3.3 or later**. The package is published on [GitHub Packages](https://github.com/m-finder/giorgio-im/pkgs/npm/giorgio-im) as `@m-finder/giorgio-im`.
+
+#### Install from GitHub Packages
+
+1. Add this scoped registry mapping to `.npmrc` in your application's root. Other packages keep their existing registry:
+
+   ```ini
+   @m-finder:registry=https://npm.pkg.github.com
+   ```
+
+2. Sign in to the registry with your GitHub account:
+
+   ```bash
+   npm login --scope=@m-finder --auth-type=legacy --registry=https://npm.pkg.github.com
+   ```
+
+   Use your GitHub username and a **Personal access token (classic)** with `read:packages` as the password, not your GitHub account password. GitHub's npm registry requires authentication even for public packages; no npmjs account is needed. npm stores credentials in your user configuration. Never commit a real token in the repository's `.npmrc`, source code or frontend environment variables.
+
+3. Install the component:
+
+   ```bash
+   npm install @m-finder/giorgio-im@^0.1.0
+   # Or
+   pnpm add @m-finder/giorgio-im@^0.1.0
+   ```
+
+For 401 / 403 errors, check token expiration, the `read:packages` permission and that you logged in to `https://npm.pkg.github.com`. GitHub Actions installations need a token with package read access; using another repository's `GITHUB_TOKEN` also requires granting that repository Actions access to the package.
+
+#### Install a local package archive
+
+You can also pack this repository and install the generated archive:
 
 ```bash
-# In the Giorgio IM repository
-npm run build
+# In the Giorgio IM repository; prepack builds the library automatically
 npm pack
 
 # In your Vue project; replace with the actual package path
-npm install /path/to/giorgio-im/giorgio-im-0.1.0.tgz
+npm install /path/to/giorgio-im/m-finder-giorgio-im-0.1.0.tgz
 ```
 
-The examples below import from `giorgio-im`. Source projects that support Vue SFCs and Vite's inline CSS imports can also import this repository's `src/index.ts` directly.
+The examples below import from `@m-finder/giorgio-im`. Source projects that support Vue SFCs and Vite's inline CSS imports can also import this repository's `src/index.ts` directly.
 
 ### Create an instance
 
 ```ts
-import { createIM, type ImInit } from 'giorgio-im'
+import { createIM, type ImInit } from '@m-finder/giorgio-im'
 
 const init: ImInit = {
   user: { id: 'me', username: 'Me', sign: 'Stay in touch', status: 'online' },
@@ -100,7 +129,7 @@ Create instances in the browser. In Vue, you can create one in `onMounted` and c
 `createConnectedIM()` connects the widget to the accompanying Laravel API, including authentication, contacts, group management, profiles, attachments, voice messages, history and real time updates.
 
 ```ts
-import { createConnectedIM } from 'giorgio-im'
+import { createConnectedIM } from '@m-finder/giorgio-im'
 
 // Obtain a token from POST /api/im/login or /api/im/register.
 const im = await createConnectedIM({
@@ -170,7 +199,7 @@ The startup script uses a separate SQLite database and Redis instance. See the [
 ```vue
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ImWidget, type ImInit, type ImSendPayload, type ImWidgetApi } from 'giorgio-im'
+import { ImWidget, type ImInit, type ImSendPayload, type ImWidgetApi } from '@m-finder/giorgio-im'
 
 const widget = ref<ImWidgetApi | null>(null)
 const init: ImInit = { user: { id: 'me', username: 'Me' }, friend: [], group: [] }
@@ -208,7 +237,7 @@ After sending text or an attachment, the component displays the outgoing message
 This WebSocket example requires your own endpoint, authentication and server message format. Ensure the connection is ready before sending, and validate incoming data in your application:
 
 ```ts
-import { createIM, type ImMessage } from 'giorgio-im'
+import { createIM, type ImMessage } from '@m-finder/giorgio-im'
 
 const socket = new WebSocket('wss://your-server.example/im')
 const im = createIM({
@@ -248,7 +277,7 @@ Unread messages from unopened conversations are grouped in a floating New messag
 Each new unread message briefly shakes the prompt from side to side. Animations respect the system's reduced motion preference, and restoring a backup does not replay the shake.
 
 ```ts
-import { createIM } from 'giorgio-im'
+import { createIM } from '@m-finder/giorgio-im'
 
 const im = createIM({
   init,
@@ -312,7 +341,7 @@ im.getMessage({ id: 'assistant', type: 'ai', mid: 'reply-1', content: 'Hello, **
 ### Customer service mode
 
 ```ts
-import { createIM } from 'giorgio-im'
+import { createIM } from '@m-finder/giorgio-im'
 
 const im = createIM({
   init: { user: { id: 'visitor-1', username: 'Visitor' } },
@@ -437,7 +466,7 @@ Upload callbacks should return durable URLs. Temporary `blob:` URLs used by the 
 The default is `locale: 'zh-CN'`. English is built in as `en`, including regional codes such as `en-US`. Each instance has independent configuration. `setLocale()` changes the language without resetting conversations or drafts.
 
 ```ts
-import { createIM, en, type ImLocales } from 'giorgio-im'
+import { createIM, en, type ImLocales } from '@m-finder/giorgio-im'
 
 const locales: ImLocales = {
   fr: {
@@ -459,7 +488,7 @@ Vue components accept reactive `:locale` and `:locales` props. Changing the comp
 ## Local backups
 
 ```ts
-import { createIM } from 'giorgio-im'
+import { createIM } from '@m-finder/giorgio-im'
 
 const im = createIM({
   init,
@@ -483,7 +512,7 @@ Theme and send-shortcut settings are stored separately at `giorgio-im-settings:$
 Built-in IDs are `emoji`, `image`, `file`, `voice`, `voice-call`, `video-call` and `history`. Reuse an ID to override its button, or add a new ID to create one.
 
 ```ts
-import { createIM, type ImToolbarItem } from 'giorgio-im'
+import { createIM, type ImToolbarItem } from '@m-finder/giorgio-im'
 
 const toolbar: ImToolbarItem[] = [
   { id: 'file', visible: false },

@@ -52,23 +52,52 @@ npm run dev
 
 ### 安装到项目
 
-要求 Vue **3.3 或以上**。可以先构建并打包本仓库，再在目标项目中安装生成的包：
+要求 Vue **3.3 或以上**。安装包发布在 [GitHub Packages](https://github.com/m-finder/giorgio-im/pkgs/npm/giorgio-im)，包名为 `@m-finder/giorgio-im`。
+
+#### 从 GitHub Packages 安装
+
+1. 在目标项目根目录的 `.npmrc` 中添加作用域配置，仅将 `@m-finder` 的包指向 GitHub：
+
+   ```ini
+   @m-finder:registry=https://npm.pkg.github.com
+   ```
+
+2. 使用 GitHub 账号登录该 registry：
+
+   ```bash
+   npm login --scope=@m-finder --auth-type=legacy --registry=https://npm.pkg.github.com
+   ```
+
+   Username 填你的 GitHub 用户名；Password 填具有 `read:packages` 权限的 **Personal access token (classic)**，不是 GitHub 登录密码。GitHub 的 npm registry 下载公开包也需要认证；不需要 npmjs 账号。凭据由 npm 保存在用户配置中，不要将真实 token 写入仓库的 `.npmrc`、源码或前端环境变量。
+
+3. 安装组件：
+
+   ```bash
+   npm install @m-finder/giorgio-im@^0.1.0
+   # 或
+   pnpm add @m-finder/giorgio-im@^0.1.0
+   ```
+
+出现 401 / 403 时，先检查 token 是否过期、是否具有 `read:packages` 权限，以及登录 registry 是否为 `https://npm.pkg.github.com`。GitHub Actions 中安装时，应配置具有包读取权限的令牌；使用其他仓库的 `GITHUB_TOKEN` 时，还需为该仓库授予包的 Actions 访问权限。
+
+#### 从本地安装包安装
+
+也可以构建并打包本仓库，然后安装生成的文件：
 
 ```bash
-# 在 Giorgio IM 仓库中
-npm run build
+# 在 Giorgio IM 仓库中，prepack 会自动执行构建
 npm pack
 
 # 在你的 Vue 项目中，替换为实际文件路径
-npm install /path/to/giorgio-im/giorgio-im-0.1.0.tgz
+npm install /path/to/giorgio-im/m-finder-giorgio-im-0.1.0.tgz
 ```
 
-下文均使用包名 `giorgio-im` 导入。在支持 Vue SFC 和 Vite CSS 内联导入的源码项目中，也可直接引用本仓库的 `src/index.ts`。
+下文均使用包名 `@m-finder/giorgio-im` 导入。在支持 Vue SFC 和 Vite CSS 内联导入的源码项目中，也可直接引用本仓库的 `src/index.ts`。
 
 ### 创建实例
 
 ```ts
-import { createIM, type ImInit } from 'giorgio-im'
+import { createIM, type ImInit } from '@m-finder/giorgio-im'
 
 const init: ImInit = {
   user: { id: 'me', username: '我', sign: '今天也要保持联系', status: 'online' },
@@ -99,7 +128,7 @@ im.getMessage({ id: 'alice', type: 'friend', content: '你好！' })
 `createConnectedIM()` 封装配套 Laravel API 的认证、联系人与群管理、资料、附件、语音消息、历史记录和实时同步。
 
 ```ts
-import { createConnectedIM } from 'giorgio-im'
+import { createConnectedIM } from '@m-finder/giorgio-im'
 
 // token 来自 POST /api/im/login 或 /api/im/register。
 const im = await createConnectedIM({
@@ -170,7 +199,7 @@ pnpm run im:demo
 ```vue
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ImWidget, type ImInit, type ImSendPayload, type ImWidgetApi } from 'giorgio-im'
+import { ImWidget, type ImInit, type ImSendPayload, type ImWidgetApi } from '@m-finder/giorgio-im'
 
 const widget = ref<ImWidgetApi | null>(null)
 const init: ImInit = { user: { id: 'me', username: '我' }, friend: [], group: [] }
@@ -208,7 +237,7 @@ ID 支持字符串或数字，包括 `0`。内部按字符串比较 ID，因此�
 下面以 WebSocket 为例，地址、鉴权与服务端消息格式需替换为你的实现；发送前需确保连接已就绪，接收数据需在业务层校验：
 
 ```ts
-import { createIM, type ImMessage } from 'giorgio-im'
+import { createIM, type ImMessage } from '@m-finder/giorgio-im'
 
 const socket = new WebSocket('wss://your-server.example/im')
 const im = createIM({
@@ -248,7 +277,7 @@ socket.addEventListener('message', event => {
 每次收到新的未读消息，浮窗会短暂左右震动；系统开启“减少动态效果”时不播放动画，恢复备份也不会重新震动。
 
 ```ts
-import { createIM } from 'giorgio-im'
+import { createIM } from '@m-finder/giorgio-im'
 
 const im = createIM({
   init,
@@ -312,7 +341,7 @@ im.getMessage({ id: 'assistant', type: 'ai', mid: 'reply-1', content: '你好，
 ### 客服模式
 
 ```ts
-import { createIM } from 'giorgio-im'
+import { createIM } from '@m-finder/giorgio-im'
 
 const im = createIM({
   init: { user: { id: 'visitor-1', username: '访客' } },
@@ -436,7 +465,7 @@ await im.deleteFriend('alice')
 默认 `locale: 'zh-CN'`，内置 `en`，也接受 `en-US` 等英文地区代码。每个实例独立配置，`setLocale()` 可在运行时切换，不重置会话或草稿。
 
 ```ts
-import { createIM, en, type ImLocales } from 'giorgio-im'
+import { createIM, en, type ImLocales } from '@m-finder/giorgio-im'
 
 const locales: ImLocales = {
   fr: {
@@ -458,7 +487,7 @@ Vue 组件可响应式传入 `:locale` 和 `:locales`。组件语言切换仅翻
 ## 本地备份
 
 ```ts
-import { createIM } from 'giorgio-im'
+import { createIM } from '@m-finder/giorgio-im'
 
 const im = createIM({
   init,
@@ -482,7 +511,7 @@ const im = createIM({
 内置 ID：`emoji`、`image`、`file`、`voice`、`voice-call`、`video-call`、`history`。相同 ID 覆盖原按钮，新 ID 添加按钮。
 
 ```ts
-import { createIM, type ImToolbarItem } from 'giorgio-im'
+import { createIM, type ImToolbarItem } from '@m-finder/giorgio-im'
 
 const toolbar: ImToolbarItem[] = [
   { id: 'file', visible: false },
