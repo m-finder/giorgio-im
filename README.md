@@ -4,7 +4,9 @@
 
 基于 Vue 3 和 TypeScript 的悬浮即时通讯组件，参考 LayIM 的交互与数据结构。通过 `createIM()` 引入即可使用，也可直接在 Vue 模板中挂载。
 
-组件提供联系人、会话、消息展示和交互界面；可通过回调连接自己的服务，也可使用 `createConnectedIM()` 接入配套的 Laravel + Giorgio Socket 服务。AI 请求与 RTC 通话由应用接入。
+组件提供联系人、会话、消息展示和交互界面；可通过回调连接自己的服务，也可使用 `createConnectedIM()` 接入配套的 [Laravel + Giorgio Socket]( https://github.com/m-finder/giorgio-im-socket) 服务。
+
+AI 请求与 RTC 通话需自行接入。
 
 ## 界面预览
 
