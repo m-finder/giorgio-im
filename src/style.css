@@ -265,7 +265,7 @@
 .gim-dark .gim-owner-badge { background:#503e25; color:#ffcf7c; }
 .gim-dark .gim-admin-badge { background:#31425d; color:#a9beff; }
 .gim-dark .gim-member-controls button:not(.gim-danger) { background:#31425d; color:#a9beff; }
-@media (max-width:720px) {
+@media (max-width:640px) {
   .gim-message-alert,.gim-message-alert-panel { right:12px; bottom:76px; width:min(260px,calc(100vw - 24px)); }
   .gim-panel,.gim-chat { top:0!important; right:0!important; bottom:0!important; left:0!important; width:100%!important; height:100dvh!important; border-radius:0; transform:none!important; }
   .gim-chat { z-index:10003!important; }
