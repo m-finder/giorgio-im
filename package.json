@@ -1,6 +1,6 @@
 {
   "name": "@m-finder/giorgio-im",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A drop-in Vue 3 instant messaging widget",
   "license": "MIT",
   "repository": {
@@ -16,7 +16,9 @@
     "access": "public"
   },
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "main": "./dist/giorgio-im.umd.cjs",
   "module": "./dist/giorgio-im.js",
   "types": "./dist/index.d.ts",

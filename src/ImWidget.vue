@@ -627,7 +627,7 @@ function adjustDraggedChatWidth(oldWidth?: number): void {
 
 function startDrag(event: PointerEvent, which: 'panel' | 'chat'): void {
   if (which === 'chat' && active.value?.type === 'ai' && active.value.maximized) return
-  if (event.button !== 0 || window.innerWidth <= 720 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
+  if (event.button !== 0 || window.innerWidth <= 640 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
   const element = which === 'panel' ? panelElement.value : chatElement.value
   if (!element) return
   event.preventDefault()
