@@ -49,6 +49,45 @@ npm install @m-finder/giorgio-im
 
 GitHub Packages requires authentication even for public npm packages
 
+## Install the local demo
+
+Requires PHP 8.1+ with pdo_sqlite and mbstring, Composer, Node.js/npm, and Redis. The script installs a Laravel 10 demo using the native PHP Socket driver; Swoole is optional.
+
+Download, then run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/m-finder/giorgio-im-socket/main/tools/setup.sh -o /tmp/giorgio-im-setup.sh
+bash /tmp/giorgio-im-setup.sh
+```
+
+1. In a Laravel root, confirm whether to install there; the default is to cancel.
+2. Outside a Laravel root, confirm whether to create Laravel 10, then enter an empty destination (default: `./laravel-im-demo`). To select an existing project, use `bash /tmp/giorgio-im-setup.sh /path/to/project`.
+3. When prompted, enter a [GitHub classic PAT](https://github.com/settings/tokens) with `read:packages` and access to the frontend package. Input is hidden; no prior `npm login` is needed.
+
+The script writes this project `.npmrc`:
+
+```ini
+@m-finder:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GIORGIO_IM_NPM_TOKEN}
+```
+
+The authentication line contains an environment variable placeholder. The entered token is passed only to this `npm install` and is never written to project files. Rerunning prompts again; future manual `npm install` commands require `GIORGIO_IM_NPM_TOKEN` to be set first.
+
+The script bundles Blade, TS, CSS, registration/login, and Sanctum integration. It installs `wu/giorgio-im-socket` (Composer also installs its `wu/giorgio-socket` dependency), Predis, Sanctum, `@m-finder/giorgio-im`, and Vue; configures `.env` and missing secrets; runs migrations; and builds the frontend.
+
+It writes the demo User model, routes, and configuration, and switches `.env` to local SQLite at `storage/app/im-demo/database.sqlite`. Changed existing files are backed up under `storage/app/im-demo-backups/`. Rerunning preserves valid secrets and database contents.
+
+After installation, run one command in each of four terminals at the project root:
+
+```bash
+redis-server --bind 127.0.0.1 --port 16380 --save '' --appendonly no
+php artisan socket:start
+php artisan socket:events
+php artisan serve --host=127.0.0.1 --port=8001 --no-reload
+```
+
+Open `http://127.0.0.1:8001/im` and test private and group messages with two accounts. HTTP/Socket/Redis ports default to `8001/9501/16380`; override them before running the script with `GIORGIO_IM_HTTP_PORT`, `GIORGIO_IM_SOCKET_PORT`, and `GIORGIO_IM_REDIS_PORT`. Use the startup commands printed by the script for custom ports.
+
 ## Quick start
 
 ```ts
@@ -117,16 +156,15 @@ im.open()
 
 `apiUrl` must match the backend route prefix
 
-The backend provides `/init`, `/socket-ticket`, `/events`, `/messages` and `/uploads`
+The backend provides `/init`, `/socket-ticket`, `/messages` and `/uploads`
 
-`createConnectedIM()` handles tickets, WebSocket, event catch-up, reconnects, contacts and group actions
+`createConnectedIM()` handles tickets, WebSocket, event catch-up, reconnects, contacts and group actions. Events sync through Socket without HTTP polling. Reconnects replay pages from the last applied cursor and deduplicate events. The Socket backend must support `sync` packets.
 
 | Option | Default |
 | --- | --- |
 | `token` | Required token or token function |
 | `apiUrl` | `/api/im` |
 | `socketUrl` | URL returned by `/init` |
-| `pollInterval` | `5000` ms, minimum `1000` |
 | `requestTimeout` | `15000` ms |
 | `transport.requireTLS` | `true` |
 | `transport.allowInsecureLocalhost` | `true` |

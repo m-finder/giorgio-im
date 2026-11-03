@@ -5,7 +5,6 @@
 <a href="https://github.com/m-finder/giorgio-im/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License"></a>
 <img src="https://img.shields.io/badge/Vue-3.3%2B-42B883" alt="Vue 3.3+">
 <img src="https://img.shields.io/badge/TypeScript-5%2B-3178C6" alt="TypeScript 5+">
-<img src="https://img.shields.io/badge/Socket-Optional-25A162" alt="Socket integration optional">
 </p>
 
 [简体中文](README.md) | [English](README.en.md)
@@ -47,6 +46,45 @@ npm install @m-finder/giorgio-im
 ```
 
 GitHub Packages 即使公开的 npm 包也要求认证
+
+## 一键安装本地演示
+
+需要 PHP 8.1+（pdo_sqlite、mbstring）、Composer、Node.js/npm、Redis。脚本安装 Laravel 10 演示，使用 PHP 原生 Socket，无需 Swoole。
+
+下载后执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/m-finder/giorgio-im-socket/main/tools/setup.sh -o /tmp/giorgio-im-setup.sh
+bash /tmp/giorgio-im-setup.sh
+```
+
+1. 当前为 Laravel 根目录：询问是否在当前目录安装，默认取消。
+2. 当前不是 Laravel 根目录：询问是否新建 Laravel 10，再输入空的安装目录（默认 `./laravel-im-demo`）。也可传入已有项目：`bash /tmp/giorgio-im-setup.sh /项目目录`。
+3. 提示时输入具有 `read:packages` 权限且能访问前端包的 [GitHub classic PAT](https://github.com/settings/tokens)。输入不显示，无需提前执行 `npm login`。
+
+脚本自动写入项目 `.npmrc`：
+
+```ini
+@m-finder:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GIORGIO_IM_NPM_TOKEN}
+```
+
+认证行保留环境变量占位符；输入的 token 仅传给本次 `npm install`，不写入项目文件。再次运行脚本时会重新询问；以后手动 `npm install` 需先设置 `GIORGIO_IM_NPM_TOKEN`。
+
+脚本自带 Blade、TS、CSS、注册登录及 Sanctum 接入代码，自动安装 `wu/giorgio-im-socket`（Composer 同时安装依赖 `wu/giorgio-socket`）、Predis、Sanctum、`@m-finder/giorgio-im` 和 Vue，配置 `.env` 与缺少的密钥，执行迁移和前端构建。
+
+会写入演示 `User` 模型、路由和配置，并将 `.env` 切换到本地 SQLite：`storage/app/im-demo/database.sqlite`。改动前的已有文件备份到 `storage/app/im-demo-backups/`；重复运行保留有效密钥和数据库数据。
+
+完成后在项目根目录的四个终端分别启动：
+
+```bash
+redis-server --bind 127.0.0.1 --port 16380 --save '' --appendonly no
+php artisan socket:start
+php artisan socket:events
+php artisan serve --host=127.0.0.1 --port=8001 --no-reload
+```
+
+打开 `http://127.0.0.1:8001/im`，用两个账号测试私聊和群聊。HTTP/Socket/Redis 默认端口为 `8001/9501/16380`，可在执行脚本前设置 `GIORGIO_IM_HTTP_PORT`、`GIORGIO_IM_SOCKET_PORT`、`GIORGIO_IM_REDIS_PORT`，启动命令以脚本输出为准。
 
 ## 快速开始
 
@@ -122,16 +160,15 @@ im.open()
 
 `apiUrl` 对应后端路由前缀
 
-后端提供 `/init`、`/socket-ticket`、`/events`、`/messages`、`/uploads` 等接口
+后端提供 `/init`、`/socket-ticket`、`/messages`、`/uploads` 等接口
 
-`createConnectedIM()` 自动处理票据、WebSocket、事件补取、重连、好友和群管理
+`createConnectedIM()` 自动处理票据、WebSocket、事件补取、重连、好友和群管理。事件同步通过 Socket 完成，无 HTTP 轮询；重连后按最后处理的游标分页补收并去重。需要配套支持 `sync` 报文的 Socket 后端。
 
 | 配置 | 默认值 |
 | --- | --- |
 | `token` | 必填，Token 或返回 Token 的函数 |
 | `apiUrl` | `/api/im` |
 | `socketUrl` | 使用 `/init` 返回的地址 |
-| `pollInterval` | `5000` 毫秒，最小 `1000` |
 | `requestTimeout` | `15000` 毫秒 |
 | `transport.requireTLS` | `true` |
 | `transport.allowInsecureLocalhost` | `true` |

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import ImWidget from '../src/ImWidget.vue'
@@ -10,6 +10,8 @@ const init: ImInit = {
   friend: [{ id: 1, groupname: '好友', list: [{ id: 'alice', username: 'Alice', status: 'online' }] }],
   group: [{ id: 'team', groupname: '团队', members: 3 }],
 }
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('ImWidget', () => {
   it('forwards profile edits through createIM callbacks and sends the edited profile', async () => {
@@ -76,13 +78,14 @@ describe('ImWidget', () => {
   })
 
   it('opens a contact, sends text, and keeps line breaks in the composer', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
     const wrapper = mount(ImWidget, { props: { init } })
     await wrapper.get('[aria-label="打开聊天"]').trigger('click')
     await wrapper.get('.gim-contact').trigger('click')
     const input = wrapper.get<HTMLTextAreaElement>('[aria-label="输入消息"]')
     await input.setValue('你好')
     await input.trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(wrapper.emitted('sendMessage')?.[0]?.[0]).toMatchObject({ content: '你好', receiver: { id: 'alice', type: 'friend' } })
+    expect(wrapper.emitted('sendMessage')?.[0]?.[0]).toMatchObject({ content: '你好', mid: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/), receiver: { id: 'alice', type: 'friend' } })
     expect(wrapper.find('.gim-bubble').text()).toBe('你好')
     expect(input.element.value).toBe('')
     wrapper.unmount()

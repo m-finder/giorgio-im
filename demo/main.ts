@@ -1,4 +1,5 @@
 import { createIM, type ImContact, type ImGroupMember, type ImInit } from '../src'
+import { createUuid } from '../src/uuid'
 import './page.css'
 
 const english = new URLSearchParams(location.search).get('lang') === 'en'
@@ -121,7 +122,7 @@ const im = createIM({
         `你好，我是 **Giorgio AI**。${questions.length > 1 ? `这是我们的第 ${questions.length} 轮对话，上一个问题是「${questions.at(-2)}」。` : '很高兴和你开始对话！'}\n\n你刚才说：\n> ${content.replace(/\n/g, '\n> ')}\n\n### 这个演示支持\n- 流式输出，逐步展示回复\n- **Markdown**、列表和代码块\n- 独立会话与多轮对话\n\n使用方式：\n\n\`\`\`ts\nim.chat({ type: 'ai', id: 'assistant', username: 'AI 助手' })\n\`\`\`\n\n这是一条本地模拟回复。真实项目可在发送回调中请求自己的服务端。`,
         `Hi, I’m **Giorgio AI**. ${questions.length > 1 ? `This is turn ${questions.length}. Your previous question was “${questions.at(-2)}”.` : 'Great to meet you!'}\n\nYou said:\n> ${content.replace(/\n/g, '\n> ')}\n\n### This demo supports\n- Streaming replies\n- **Markdown**, lists and code blocks\n- Separate conversations and follow-up questions\n\nUsage:\n\n\`\`\`ts\nim.chat({ type: 'ai', id: 'assistant', username: 'AI assistant' })\n\`\`\`\n\nThis is a simulated local reply. In your app, call your own server from the send callback.`,
       )
-      const mid = crypto.randomUUID()
+      const mid = createUuid()
       let length = 0
       window.setTimeout(() => {
         const timer = window.setInterval(() => {
@@ -150,7 +151,7 @@ const im = createIM({
     return demoGroupMembers[String(receiver.id)] || []
   },
   createGroup({ groupname, members }) {
-    const group = { id: crypto.randomUUID(), groupname, members: members.length + 1 }
+    const group = { id: createUuid(), groupname, members: members.length + 1 }
     demoGroupMembers[group.id] = [demoUser, ...members]
     return group
   },
