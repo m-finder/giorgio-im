@@ -4,6 +4,7 @@ import { ensureStyles } from './style'
 import { createLocalBackup, type LocalBackup } from './storage'
 import { useVoiceRecorder } from './voice'
 import { useMessageSound } from './notifications'
+import { createUuid } from './uuid'
 import { LocaleError, useImLocale } from './i18n'
 import type { ImLocaleKey } from './locales'
 import defaultAvatar from './assets/default-avatar.png'
@@ -627,7 +628,7 @@ function adjustDraggedChatWidth(oldWidth?: number): void {
 
 function startDrag(event: PointerEvent, which: 'panel' | 'chat'): void {
   if (which === 'chat' && active.value?.type === 'ai' && active.value.maximized) return
-  if (event.button !== 0 || window.innerWidth <= 640 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
+  if (event.button !== 0 || window.innerWidth <= 540 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
   const element = which === 'panel' ? panelElement.value : chatElement.value
   if (!element) return
   event.preventDefault()
@@ -1163,7 +1164,7 @@ async function saveFriendGroup(): Promise<ImFriendGroup> {
   if (friendGroups.value.some(group => group.groupname === groupname)) throw new LocaleError('categoryExists')
   const group = props.createFriendGroup
     ? await props.createFriendGroup(groupname)
-    : { id: crypto.randomUUID(), groupname, list: [] }
+    : { id: createUuid(), groupname, list: [] }
   if (group.id === undefined || group.id === null) throw new LocaleError('createCategoryFailed')
   addFriendGroup(group)
   emit('friendGroupAdded', group)
@@ -1221,7 +1222,7 @@ async function submitGroupManagement(): Promise<void> {
       if (!members.length) throw new LocaleError('selectAtLeastOneFriend')
       const created: ImContact = props.createGroup
         ? await props.createGroup({ groupname, members })
-        : { id: crypto.randomUUID(), groupname }
+        : { id: createUuid(), groupname }
       const group = { ...created, ownerId: created.ownerId ?? props.init.user.id }
       if (group.id === undefined || group.id === null) throw new LocaleError('createGroupFailed')
       addContacts({ ...group, groupname: group.groupname || groupname, type: 'group' })
@@ -1424,7 +1425,7 @@ function getChatNotice(notice: ImChatNotice): void {
   if (notice.event === 'signature' ? props.chatNotices?.signature === false : props.chatNotices?.presence === false) return
   if (notice.mid !== undefined && messages[key].some(message => String(message.mid) === String(notice.mid))) return
   messages[key].push(normalise({ id: notice.id, type: 'friend', content: '', mine: false,
-    mid: notice.mid ?? crypto.randomUUID(), timestamp: notice.timestamp, notice: { event: notice.event, sign: notice.sign } }))
+    mid: notice.mid ?? createUuid(), timestamp: notice.timestamp, notice: { event: notice.event, sign: notice.sign } }))
 }
 
 function chatNoticeText(message: ImMessage): string {
@@ -1509,7 +1510,7 @@ function send(): void {
   const receiver = active.value
   if (!content || !receiver || messageRestriction(receiver) || voiceState.value !== 'idle') return
   const timestamp = Date.now()
-  const mid = crypto.randomUUID()
+  const mid = createUuid()
   getMessage({ id: receiver.id, type: receiver.type, content, mid, username: username.value, avatar: userAvatar.value, timestamp, fromid: props.init.user.id, mine: true })
   draft.value = ''
   if (receiver.type === 'ai') startAIReply(receiver)
@@ -1588,7 +1589,7 @@ async function sendAttachment(event: Event, kind: ImAttachment['kind']): Promise
     if (!url) throw new Error('Invalid attachment URL')
     const attachment = { kind, url, name: file.name }
     const timestamp = Date.now()
-    const mid = crypto.randomUUID()
+    const mid = createUuid()
     getMessage({ id: receiver.id, type: receiver.type, content: file.name, attachment, timestamp, mid, mine: true, username: username.value, fromid: props.init.user.id })
     if (receiver.type === 'ai') startAIReply(receiver)
     emit('sendMessage', { user: currentUser.value, receiver, content: file.name, attachment, timestamp, mid })
@@ -1629,7 +1630,7 @@ async function sendVoice(): Promise<void> {
     if (!url) throw new Error('Invalid audio URL')
     const attachment: ImAttachment = { kind: 'audio', url, name: file.name, duration }
     const timestamp = Date.now()
-    const mid = crypto.randomUUID()
+    const mid = createUuid()
     getMessage({ ...receiver, content: t('voiceContent'), attachment, timestamp, mid, fromid: currentUser.value.id, mine: true, username: username.value, avatar: userAvatar.value })
     emit('sendMessage', { user: currentUser.value, receiver, content: t('voiceContent'), timestamp, attachment, mid })
     cancelVoice()

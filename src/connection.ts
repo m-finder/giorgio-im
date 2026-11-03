@@ -1,5 +1,6 @@
 import { createIM } from './index'
 import { assertImTransport, type ImTransportOptions } from './transport'
+import { createUuid } from './uuid'
 import type { ImChatNotice, ImContact, ImFriendGroup, ImGroupMember, ImId, ImInit, ImMessage, ImNotice, ImOptions, ImReadPayload, ImReadReceipt, ImSendPayload, ImTypingPayload, ImTypingState, ImUser, ImWidgetApi } from './types'
 
 export type ImConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline' | 'closed'
@@ -11,8 +12,6 @@ export interface ImConnectionOptions {
   token: string | (() => string | Promise<string>)
   /** Overrides socketUrl returned by the init endpoint. */
   socketUrl?: string
-  /** Durable event fallback interval in milliseconds. Defaults to 5000; minimum 1000. */
-  pollInterval?: number
   /** Maximum HTTP request time in milliseconds. Defaults to 15000. */
   requestTimeout?: number
   /** TLS policy for API requests and the socket connection. */
@@ -27,7 +26,7 @@ export interface ConnectedIM extends ImWidgetApi {
   readonly connectionState: ImConnectionState
   /** Retry after connectivity or credentials change. */
   reconnect: () => void
-  /** Immediately fetch pending events in server order. */
+  /** Fetch pending events through the authenticated socket in server order. */
   sync: () => Promise<void>
   /** Send or retry a payload. Reuse its mid to avoid duplicate delivery. */
   sendMessage: (payload: ImSendPayload) => Promise<ImMessage>
@@ -57,6 +56,9 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
   let epoch = 0
   let lastPong = 0
   let syncing: Promise<void> | undefined
+  let syncAgain = false
+  let syncSequence = 0
+  let pendingPage: { id: number; resolve: (page: EventPage) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined
   let profileQueue = Promise.resolve()
   let profileRevision = 0
   const pendingReads = new Map<string, ImReadPayload>()
@@ -117,7 +119,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
   }
   async function sendMessage(payload: ImSendPayload): Promise<ImMessage> {
     if (payload.receiver.type === 'ai') throw new Error('AI requests must use widget.onSendMessage')
-    payload.mid ??= crypto.randomUUID()
+    payload.mid ??= createUuid()
     return request<ImMessage>('/messages', 'POST', {
       id: payload.receiver.id, type: payload.receiver.type, mid: payload.mid,
       content: payload.content, ...(payload.attachment ? { attachment: payload.attachment } : {}),
@@ -254,24 +256,50 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
   }
   async function sync(): Promise<void> {
     if (!alive) return
-    if (syncing) return syncing
+    if (syncing) { syncAgain = true; return syncing }
     syncing = (async () => {
       let more = true
       while (alive && more) {
-        const page = await request<EventPage>(`/events?after=${cursor}`)
+        syncAgain = false
+        const page = await requestEvents()
         if (!alive) return
         for (const event of page.events) {
           if (event.id <= cursor) continue
           await apply(event)
           cursor = event.id
         }
-        more = page.hasMore
-        if (more && !page.events.length) throw new Error('Invalid event cursor')
+        if (page.hasMore && !page.events.length) throw new Error('Invalid event cursor')
+        more = page.hasMore || syncAgain
       }
-    })().finally(() => { syncing = undefined })
+    })().finally(() => { syncing = undefined; if (syncAgain) backgroundSync() })
     return syncing
   }
-  const backgroundSync = () => { void sync().then(flushReads).catch(error => report(error, 'sync')) }
+  function cancelPage(error: Error): void {
+    if (!pendingPage) return
+    const pending = pendingPage
+    pendingPage = undefined
+    clearTimeout(pending.timer)
+    pending.reject(error)
+  }
+  function requestEvents(): Promise<EventPage> {
+    const ws = socket
+    if (state !== 'online' || !ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Socket is not connected'))
+    return new Promise((resolve, reject) => {
+      const id = ++syncSequence
+      const timer = setTimeout(() => { cancelPage(new Error('Socket event sync timed out')); ws.close() }, options.requestTimeout ?? 15000)
+      pendingPage = { id, resolve, reject, timer }
+      try { ws.send(JSON.stringify({ type: 'sync', after: cursor, request_id: id })) }
+      catch (error) { cancelPage(error instanceof Error ? error : new Error(String(error))) }
+    })
+  }
+  const backgroundSync = () => {
+    if (state !== 'online') return
+    const ws = socket
+    void sync().then(flushReads).catch(error => {
+      if (!(error instanceof Error && ['Socket disconnected', 'Socket reconnecting'].includes(error.message))) report(error, 'sync')
+      if (alive && socket === ws) ws?.close()
+    })
+  }
   function scheduleReconnect(): void {
     if (!alive || reconnectTimer) return
     changeState('reconnecting')
@@ -285,6 +313,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
     clearTimeout(authenticationTimer)
     clearTimeout(reconnectTimer)
     reconnectTimer = undefined
+    cancelPage(new Error('Socket reconnecting'))
     socket?.close()
     changeState(attempts ? 'reconnecting' : 'connecting')
     try {
@@ -298,7 +327,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
       ws.onmessage = event => {
         if (!alive || session !== epoch) return
         try {
-          const packet = JSON.parse(String(event.data)) as { type?: string; user_id?: ImId }
+          const packet = JSON.parse(String(event.data)) as EventPage & { type?: string; user_id?: ImId; request_id?: number }
           if (packet.type === 'connected') {
             if (String(packet.user_id) !== String(snapshot.init.user.id)) { ws.close(); throw new Error('Socket identity mismatch') }
             clearTimeout(authenticationTimer)
@@ -311,7 +340,18 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
               if (Date.now() - lastPong > 60000) { ws.close(); return }
               if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }))
             }, 25000)
-          } else if (packet.type === 'pong') lastPong = Date.now()
+          } else if (packet.type === 'events' && pendingPage && pendingPage.id === packet.request_id) {
+            if (!Array.isArray(packet.events) || typeof packet.hasMore !== 'boolean'
+              || !packet.events.every((item, index) => Number.isSafeInteger(item.id) && item.id > 0
+                && (!index || item.id > packet.events[index - 1].id)
+                && typeof item.type === 'string' && item.data && typeof item.data === 'object')) {
+              cancelPage(new Error('Invalid socket event page')); ws.close(); return
+            }
+            const pending = pendingPage
+            pendingPage = undefined
+            clearTimeout(pending.timer)
+            pending.resolve(packet)
+          } else if (packet.type === 'pong') { lastPong = Date.now(); void flushReads() }
           else if (packet.type === 'system') backgroundSync()
           else if (packet.type === 'error') report(new Error('Socket rejected a packet'), 'socket')
         } catch (error) { report(error, 'socket') }
@@ -321,6 +361,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
         if (!alive || session !== epoch) return
         clearTimeout(authenticationTimer)
         clearInterval(heartbeatTimer)
+        cancelPage(new Error('Socket disconnected'))
         scheduleReconnect()
       }
     } catch (error) {
@@ -330,7 +371,6 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
       else scheduleReconnect()
     }
   }
-  const pollTimer = setInterval(backgroundSync, Math.max(1000, options.pollInterval ?? 5000))
   const visibleSync = () => { if (document.visibilityState !== 'hidden') backgroundSync() }
   window.addEventListener('online', backgroundSync)
   document.addEventListener('visibilitychange', visibleSync)
@@ -344,7 +384,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
       clearTimeout(reconnectTimer)
       clearInterval(heartbeatTimer)
       clearTimeout(authenticationTimer)
-      clearInterval(pollTimer)
+      cancelPage(new Error('IM connection is closed'))
       for (const controller of controllers) controller.abort()
       socket?.close()
       window.removeEventListener('online', backgroundSync)
