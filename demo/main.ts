@@ -55,6 +55,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <header class="demo-nav">
       <div class="demo-brand"><span class="demo-brand-icon">◈</span> GIORGIO <span>IM</span></div>
       <div class="demo-nav-tools"><span class="demo-version">Vue 3 · TypeScript</span>
+        <a class="demo-framework" data-framework="react" href="/react/">${t('切换到 React 版', 'Switch to React')}</a>
         <nav class="demo-language" aria-label="${t('页面语言', 'Page language')}">
           <a lang="zh-CN" data-language="zh" ${english ? '' : 'aria-current="page"'}>中文</a>
           <a lang="en" data-language="en" ${english ? 'aria-current="page"' : ''}>English</a>
@@ -77,9 +78,12 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 `
 
 function updateLinks() {
-  document.querySelectorAll<HTMLAnchorElement>('[data-mode], [data-language]').forEach(link => {
+  document.querySelectorAll<HTMLAnchorElement>('[data-mode], [data-language], [data-framework]').forEach(link => {
     const url = new URL(location.href)
-    if (link.dataset.mode) {
+    if (link.dataset.framework) {
+      url.pathname = '/react/'
+      url.search = english ? '?lang=en' : ''
+    } else if (link.dataset.mode) {
       if (link.dataset.mode !== (url.searchParams.get('mode') || 'chat')) url.searchParams.set('resetWindows', '1')
       url.searchParams.set('mode', link.dataset.mode)
     } else if (link.dataset.language === 'en') url.searchParams.set('lang', 'en')
