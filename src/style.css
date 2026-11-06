@@ -133,6 +133,9 @@
 .gim-bubble { max-width:100%; padding:10px 13px; border:1px solid #e9edf3; border-radius:3px 13px 13px 13px; background:white; box-shadow:0 2px 6px #21385b0a; color:#37475d; font-size:12px; line-height:1.7; overflow-wrap:anywhere; white-space:pre-wrap; }
 .gim-message.mine .gim-bubble { border-color:#5179f3; border-radius:13px 3px 13px 13px; background:linear-gradient(135deg,#608aff,#426cf0); box-shadow:0 3px 10px #426cf029; color:white; }
 .gim-message-image { display:block; max-width:min(240px,100%); max-height:220px; border-radius:7px; object-fit:contain; }
+.gim-message-images { display:flex; flex-wrap:wrap; gap:5px; max-width:490px; }
+.gim-message-images .gim-message-image { max-width:min(160px,100%); max-height:160px; }
+.gim-message-caption { display:block; margin-top:6px; }
 .gim-bubble a { color:inherit; text-decoration:underline; }
 .gim-ai-chat .gim-message-body { max-width:86%; }
 .gim-ai-progress { display:flex; align-items:center; gap:8px; color:var(--gim-muted); font-size:11px; }
@@ -172,6 +175,11 @@
 .gim-voice-message { display:flex; max-width:100%; flex-direction:column; gap:4px; }
 .gim-voice-message audio { width:240px; max-width:100%; height:36px; }
 .gim-bubble:has(.gim-voice-message) { width:266px; }
+.gim-composer-input { min-height:79px; }
+.gim-image-previews { display:flex; gap:8px; max-width:100%; overflow-x:auto; padding:8px 4px 4px; }
+.gim-image-preview { position:relative; flex:none; width:70px; height:70px; }
+.gim-image-preview img { width:100%; height:100%; border-radius:7px; object-fit:cover; }
+.gim-image-preview button { position:absolute; top:-5px; right:-5px; width:20px; height:20px; padding:0; border:0; border-radius:50%; background:#334155; color:white; font-size:16px; line-height:20px; }
 .gim-composer textarea { display:block; width:100%; height:79px; padding:5px; resize:none; border:0; outline:0; color:var(--gim-ink); font-size:12px; line-height:1.5; }
 .gim-composer textarea::placeholder { color:#a6b0be; }
 .gim-composer-footer { display:flex; align-items:center; justify-content:space-between; }

@@ -123,6 +123,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
     return request<ImMessage>('/messages', 'POST', {
       id: payload.receiver.id, type: payload.receiver.type, mid: payload.mid,
       content: payload.content, ...(payload.attachment ? { attachment: payload.attachment } : {}),
+      ...(payload.attachments ? { attachments: payload.attachments } : {}),
     })
   }
   function queueRead(payload: ImReadPayload): void {

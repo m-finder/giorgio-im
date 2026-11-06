@@ -19,7 +19,8 @@ export const zhCN = {
 
   emoji: "表情",
   image: "图片",
-  sendImage: "发送图片",
+  sendImage: "选择图片",
+  removeImage: "移除图片",
   file: "文件",
   sendFile: "发送文件",
   voiceMessage: "语音消息",
@@ -286,7 +287,8 @@ export const en: ImLocaleMessages = {
 
   emoji: "Emoji",
   image: "Image",
-  sendImage: "Send image",
+  sendImage: "Choose image",
+  removeImage: "Remove image",
   file: "File",
   sendFile: "Send file",
   voiceMessage: "Voice message",

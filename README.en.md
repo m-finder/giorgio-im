@@ -243,6 +243,8 @@ Attachment shape:
 
 Use `mid` to deduplicate normal messages
 
+Messages with multiple images and text use `attachments: ImAttachment[]`; single attachments still use `attachment`
+
 Use the same `mid` for cumulative AI streaming updates:
 
 ```ts
@@ -318,6 +320,8 @@ Customer service mode shows one conversation
 Configure `uploadAvatar`, `uploadGroupAvatar`, `uploadAttachment` and `uploadVoice`
 
 Upload callbacks return accessible URLs
+
+Pasting or choosing images from the toolbar adds them to the composer. Remove individual images or add text before sending them together via `uploadAttachment`
 
 Voice recording requires `MediaRecorder` and microphone permission
 

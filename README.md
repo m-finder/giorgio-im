@@ -249,6 +249,8 @@ im.getMessage({
 
 普通消息使用 `mid` 去重
 
+多张图片与文字一起发送时，消息使用 `attachments: ImAttachment[]`；单附件仍使用 `attachment`
+
 AI 流式消息使用同一个 `mid`，每次传入完整内容：
 
 ```ts
@@ -326,6 +328,8 @@ const im = createIM({
 配置 `uploadAvatar`、`uploadGroupAvatar`、`uploadAttachment`、`uploadVoice`
 
 上传回调返回可访问 URL
+
+在聊天输入框粘贴或通过工具栏选择图片会累积预览多张图片，可逐张移除并与文字一起发送；发送时通过 `uploadAttachment` 上传图片
 
 语音录制需要 `MediaRecorder` 和麦克风权限
 
