@@ -67,6 +67,8 @@ export interface ImMessage {
   /** Quiet timeline entries, rendered without a message bubble or unread alerts. */
   notice?: Pick<ImChatNotice, 'event' | 'sign'>
   attachment?: ImAttachment
+  /** Images sent together in one message. */
+  attachments?: ImAttachment[]
   /** AI replies: cumulative content replaces the pending reply; defaults to true. */
   finished?: boolean
   /** AI request failure; ends pending state and preserves any partial reply. */
@@ -128,6 +130,8 @@ export interface ImSendPayload {
   content: string
   timestamp: number
   attachment?: ImAttachment
+  /** Images sent together in one message. */
+  attachments?: ImAttachment[]
 }
 
 export interface ImNotice {

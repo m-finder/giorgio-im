@@ -108,6 +108,8 @@ const friendActionsId = ref<string | null>(null)
 const friendSwipe = ref<{ id: string; offset: number } | null>(null)
 const blockedUsers = ref<ImContact[]>((props.init.blocked || []).map(contact => ({ ...contact })))
 const draft = ref('')
+const pendingImages = ref<{ file: File; url: string }[]>([])
+const imageSending = ref(false)
 const sign = ref(props.init.user.sign || '')
 const savedSign = ref(sign.value)
 const username = ref(props.init.user.username)
@@ -329,6 +331,7 @@ watch([activeKey, chatOpen, pageVisible, activeMessages], markViewedMessages, { 
 watch(draft, value => { if (!value.trim()) stopTyping() })
 watch([activeKey, chatOpen, pageVisible, composerRestriction], stopTyping, { flush: 'sync' })
 watch(activeKey, () => {
+  clearPendingImages()
   if (!managementBusy.value && ['members', 'invite', 'leave-group', 'remove-member', 'dismiss-group', 'rename-group'].includes(utility.value || '')) utility.value = null
 })
 watch(() => props.toolbar, () => { toolbarOverrides.value = null }, { deep: true, flush: 'sync' })
@@ -375,6 +378,7 @@ onMounted(() => {
   } catch { /* Storage may be unavailable. */ }
 })
 onUnmounted(() => {
+  clearPendingImages()
   stopTyping()
   disposed = true
   messageAlertAnimation?.cancel()
@@ -1505,16 +1509,42 @@ function setChatStatus(status: string, receiver?: { id: ImId; type: ImChatType }
   if (key) chatStatus[key] = status
 }
 
-function send(): void {
+async function send(): Promise<void> {
   const content = draft.value.trim()
   const receiver = active.value
-  if (!content || !receiver || messageRestriction(receiver) || voiceState.value !== 'idle') return
+  const images = pendingImages.value
+  if ((!content && !images.length) || !receiver || messageRestriction(receiver) || voiceState.value !== 'idle' || imageSending.value) return
+  let attachment: ImAttachment | undefined
+  let attachments: ImAttachment[] | undefined
+  if (images.length) {
+    toolbarError.value = ''
+    if (!props.uploadAttachment) { toolbarError.value = new LocaleError('uploadAttachmentRequired'); return }
+    imageSending.value = true
+    try {
+      const uploaded: ImAttachment[] = []
+      for (const image of images) {
+        const url = safeAttachmentUrl(await props.uploadAttachment(image.file, receiver))
+        if (!url) throw new Error('Invalid attachment URL')
+        if (disposed || active.value !== receiver || pendingImages.value !== images || messageRestriction(receiver)) return
+        uploaded.push({ kind: 'image', url, name: image.file.name })
+      }
+      if (uploaded.length === 1) attachment = uploaded[0]
+      else attachments = uploaded
+    } catch {
+      toolbarError.value = new LocaleError('uploadFailed')
+      return
+    } finally {
+      imageSending.value = false
+    }
+  }
+  const messageContent = content || images[0]?.file.name || ''
   const timestamp = Date.now()
   const mid = createUuid()
-  getMessage({ id: receiver.id, type: receiver.type, content, mid, username: username.value, avatar: userAvatar.value, timestamp, fromid: props.init.user.id, mine: true })
+  getMessage({ id: receiver.id, type: receiver.type, content: messageContent, ...(attachment ? { attachment } : {}), ...(attachments ? { attachments } : {}), mid, username: username.value, avatar: userAvatar.value, timestamp, fromid: props.init.user.id, mine: true })
   draft.value = ''
+  clearPendingImages()
   if (receiver.type === 'ai') startAIReply(receiver)
-  emit('sendMessage', { user: currentUser.value, receiver, content, timestamp, mid })
+  emit('sendMessage', { user: currentUser.value, receiver, content: messageContent, ...(attachment ? { attachment } : {}), ...(attachments ? { attachments } : {}), timestamp, mid })
 }
 
 function onComposerKeydown(event: KeyboardEvent): void {
@@ -1570,6 +1600,30 @@ function safeAttachmentUrl(url: string): string {
   try {
     return ['http:', 'https:', 'blob:'].includes(new URL(url, typeof location === 'undefined' ? 'http://localhost' : location.href).protocol) ? url : ''
   } catch { return '' }
+}
+
+function clearPendingImages(): void {
+  for (const image of pendingImages.value) URL.revokeObjectURL(image.url)
+  pendingImages.value = []
+}
+
+function removePendingImage(index: number): void {
+  const image = pendingImages.value[index]
+  if (!image) return
+  URL.revokeObjectURL(image.url)
+  pendingImages.value = pendingImages.value.filter((_, position) => position !== index)
+}
+
+function onComposerImage(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const files = event.type === 'paste'
+    ? Array.from((event as ClipboardEvent).clipboardData?.items ?? []).filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => file !== null)
+    : Array.from(input.files ?? []).filter(file => file.type.startsWith('image/'))
+  if (event.type !== 'paste') input.value = ''
+  if (!files.length || composerRestriction.value || imageSending.value) return
+  if (event.type === 'paste') event.preventDefault()
+  pendingImages.value = [...pendingImages.value, ...files.map(file => ({ file: file.name ? file : new File([file], `image.${file.type.split('/')[1] || 'png'}`, { type: file.type }), url: URL.createObjectURL(file) }))]
+  toolbarError.value = ''
 }
 
 async function sendAttachment(event: Event, kind: ImAttachment['kind']): Promise<void> {
@@ -1838,7 +1892,8 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
               <div class="gim-message-body">
                 <div class="gim-message-meta"><span>{{ message.mine ? username : message.username || displayName(active) }}</span><span v-if="isBlockedMessage(message)" class="gim-blocked-label">{{ t('blockedUser') }}</span><template v-if="active.type === 'group' && (message.fromid !== undefined || message.mine)"><span v-if="isGroupOwner({ ...active, type: 'group' }, message.mine ? init.user.id : message.fromid)" class="gim-owner-badge">{{ t('owner') }}</span><span v-else-if="isGroupAdmin({ ...active, type: 'group' }, message.mine ? init.user.id : message.fromid)" class="gim-admin-badge">{{ t('administrator') }}</span></template><time>{{ timeLabel(message.timestamp) }}</time></div>
                 <div class="gim-bubble">
-                  <img v-if="message.attachment?.kind === 'image' && safeAttachmentUrl(message.attachment.url)" class="gim-message-image" :src="message.attachment.url" :alt="message.attachment.name" />
+                  <template v-if="message.attachments?.length"><div class="gim-message-images"><template v-for="image in message.attachments" :key="image.url"><img v-if="image.kind === 'image' && safeAttachmentUrl(image.url)" class="gim-message-image" :src="image.url" :alt="image.name" /></template></div><span v-if="message.content && message.content !== message.attachments[0]?.name" class="gim-message-caption">{{ message.content }}</span></template>
+                  <template v-else-if="message.attachment?.kind === 'image' && safeAttachmentUrl(message.attachment.url)"><img class="gim-message-image" :src="message.attachment.url" :alt="message.attachment.name" /><span v-if="message.content && message.content !== message.attachment.name" class="gim-message-caption">{{ message.content }}</span></template>
                   <div v-else-if="message.attachment?.kind === 'audio' && safeAttachmentUrl(message.attachment.url)" class="gim-voice-message"><audio controls preload="none" :src="message.attachment.url" :aria-label="t('playVoice')" /><small v-if="message.attachment.duration">{{ t('durationSeconds', { count: message.attachment.duration }) }}</small></div>
                   <a v-else-if="message.attachment?.kind === 'file' && safeAttachmentUrl(message.attachment.url)" :href="message.attachment.url" target="_blank" rel="noopener noreferrer" download>{{ message.attachment.name }} ↗</a>
                   <div v-else-if="active.type === 'ai' && !message.mine && message.content" class="gim-markdown" v-html="markdown.render(message.content)" />
@@ -1860,7 +1915,7 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
                 <span v-if="tool.text !== undefined">{{ tool.text }}</span>
                 <svg v-else viewBox="0 0 24 24" aria-hidden="true"><path :d="tool.icon || 'M12 5v14M5 12h14'" /></svg>
               </button>
-              <input ref="imageInput" type="file" accept="image/*" hidden @change="sendAttachment($event, 'image')" />
+              <input ref="imageInput" type="file" accept="image/*" multiple hidden @change="onComposerImage" />
               <input ref="fileInput" type="file" hidden @change="sendAttachment($event, 'file')" />
               <div v-if="emojiOpen && !composerRestriction" class="gim-emoji-picker"><button v-for="emoji in emojis" :key="emoji" type="button" :aria-label="t('insertEmoji', { emoji })" @click="insertEmoji(emoji)">{{ emoji }}</button></div>
             </div>
@@ -1871,8 +1926,11 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
               <audio v-else controls preload="metadata" :src="voicePreview" :aria-label="t('previewRecording')" />
               <button type="button" :aria-label="t('cancelRecording')" @click="cancelVoice(); voiceSending = false; toolbarError = ''">{{ t('cancel') }}</button>
             </div>
-            <textarea v-else v-model="draft" :aria-label="t('messageInput')" :disabled="!!composerRestriction" :placeholder="composerRestriction || (sendKey === 'enter' ? t('messagePlaceholder') : t('ctrlMessagePlaceholder'))" rows="3" @input="publishTyping" @keydown="onComposerKeydown" @blur="stopTyping" />
-            <div class="gim-composer-footer"><span>{{ composerRestriction || (voiceState !== 'idle' ? voiceState === 'preview' ? t('voicePreviewHint', { count: voiceDuration }) : t('stopToPreview') : sendKey === 'enter' ? t('newLineHint') : t('ctrlSend')) }}</span><button v-if="voiceState !== 'idle'" type="button" :aria-label="t('sendVoice')" :disabled="voiceState !== 'preview' || voiceSending || !!composerRestriction" @click="sendVoice">{{ voiceSending ? t('uploading') : t('send') }} <span>↗</span></button><button v-else type="button" :disabled="!draft.trim() || !!composerRestriction" @click="send">{{ t('send') }} <span>↗</span></button></div>
+            <div v-else class="gim-composer-input">
+              <div v-if="pendingImages.length" class="gim-image-previews"><div v-for="(image, index) in pendingImages" :key="image.url" class="gim-image-preview"><img :src="image.url" :alt="image.file.name" /><button type="button" :aria-label="t('removeImage')" :disabled="imageSending" @click="removePendingImage(index)">×</button></div></div>
+              <textarea v-model="draft" :aria-label="t('messageInput')" :disabled="!!composerRestriction || imageSending" :placeholder="composerRestriction || (sendKey === 'enter' ? t('messagePlaceholder') : t('ctrlMessagePlaceholder'))" rows="3" @input="publishTyping" @keydown="onComposerKeydown" @paste="onComposerImage" @blur="stopTyping" />
+            </div>
+            <div class="gim-composer-footer"><span>{{ composerRestriction || (voiceState !== 'idle' ? voiceState === 'preview' ? t('voicePreviewHint', { count: voiceDuration }) : t('stopToPreview') : sendKey === 'enter' ? t('newLineHint') : t('ctrlSend')) }}</span><button v-if="voiceState !== 'idle'" type="button" :aria-label="t('sendVoice')" :disabled="voiceState !== 'preview' || voiceSending || !!composerRestriction" @click="sendVoice">{{ voiceSending ? t('uploading') : t('send') }} <span>↗</span></button><button v-else type="button" :disabled="(!draft.trim() && !pendingImages.length) || !!composerRestriction || imageSending" @click="send">{{ imageSending ? t('uploading') : t('send') }} <span>↗</span></button></div>
           </div>
         </div>
       </section>

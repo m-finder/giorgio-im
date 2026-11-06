@@ -219,6 +219,18 @@ describe('Laravel and Giorgio Socket connection', () => {
       .toEqual({ ids: [payload!.mid, payload!.mid], bubbles: 1, authenticated: true })
   })
 
+  it('posts all images in a multi-image message', async () => {
+    const fetch = setup()
+    const im = await connect()
+    const attachments = [
+      { kind: 'image' as const, url: 'https://example.test/one.png', name: 'one.png' },
+      { kind: 'image' as const, url: 'https://example.test/two.png', name: 'two.png' },
+    ]
+    await im.sendMessage({ user: init.user, receiver: { id: 2, type: 'friend' }, content: '两张', attachments, timestamp: Date.now() })
+    expect(JSON.parse(fetch.mock.calls.find(([url, options]) => url.endsWith('/messages') && options?.method === 'POST')![1]!.body as string))
+      .toMatchObject({ content: '两张', attachments })
+  })
+
   it('shows a rejected message reason in the chat and reports the failed send to the host', async () => {
     const reason = '发送失败，消息包含敏感词，请修改后重试。'
     setup((path, options) => path === '/messages' && options?.method === 'POST'

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import ImWidget from '../src/ImWidget.vue'
@@ -11,6 +11,8 @@ const init: ImInit = {
   group: [{ id: 'room', groupname: '讨论组', ownerId: 'me', members: 2 }],
 }
 const members = [{ id: init.user.id, username: init.user.username }, { id: 'alice', username: 'Alice' }]
+
+afterEach(() => vi.unstubAllGlobals())
 
 it.each(['me', 'alice', undefined, 0])('shows owner badges and restricts management for owner %s', async ownerId => {
   const wrapper = mount(ImWidget, { props: {
@@ -170,6 +172,7 @@ it('applies server mute updates through createIM without affecting private chats
 })
 
 it('blocks text and an attachment that finishes uploading after a mute update', async () => {
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = vi.fn(() => 'blob:chosen-image'); static revokeObjectURL = vi.fn() })
   let finishUpload!: (url: string) => void
   const uploadAttachment = vi.fn(() => new Promise<string>(resolve => { finishUpload = resolve }))
   const wrapper = mount(ImWidget, { props: { init: { ...init, group: [{ ...init.group![0], ownerId: 'alice' }] }, uploadAttachment } })
@@ -180,9 +183,9 @@ it('blocks text and an attachment that finishes uploading after a mute update', 
   Object.defineProperty(input.element, 'files', { value: [new File(['image'], 'photo.png', { type: 'image/png' })] })
   await input.trigger('change')
   await wrapper.get('[aria-label="输入消息"]').setValue('发送之前禁言')
+  await wrapper.get('.gim-composer-footer button').trigger('click')
   api.setGroupMute('room', true, 'me')
   await nextTick()
-  await wrapper.get('[aria-label="输入消息"]').trigger('keydown', { key: 'Enter' })
   finishUpload('https://example.test/photo.png')
   await flushPromises()
   expect(wrapper.emitted('sendMessage')).toBeUndefined()
