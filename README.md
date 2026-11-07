@@ -18,8 +18,13 @@ Vue 3 + TypeScript 即时通讯组件
 ## 相关包
 
 - [Giorgio IM](https://github.com/m-finder/giorgio-im)：Vue 3 + TypeScript 即时通讯组件
+- [Giorgio IM React](https://github.com/m-finder/giorgio-im-react)：React + TypeScript 即时通讯组件
 - [Giorgio IM Socket](https://packagist.org/packages/wu/giorgio-im-socket)：Laravel 即时通讯后端
 - [Giorgio Socket](https://packagist.org/packages/wu/giorgio-socket)：Laravel WebSocket 底层服务相关包
+
+## 快速体验包
+
+从 [Releases 页面](https://github.com/m-finder/giorgio-im/releases) 下载适合系统的 `im-test-*` 独立程序（Windows 为 `.exe`），运行后按终端提示打开演示页面。无需安装 PHP、Node.js、Composer 或 Redis；运行 `--help` 可查看端口等参数。另有需要兼容 PHP 的 `.phar` 包。
 
 ## 安装
 
@@ -49,33 +54,16 @@ GitHub Packages 即使公开的 npm 包也要求认证
 
 ## 一键安装本地演示
 
-需要 PHP 8.1+（pdo_sqlite、mbstring）、Composer、Node.js/npm、Redis。脚本安装 Laravel 10 演示，使用 PHP 原生 Socket，无需 Swoole。
-
-下载后执行：
+演示安装脚本最低要求 PHP 8.0.2+（`pdo_sqlite`、`mbstring`），新建项目使用 Laravel 9；已有 Laravel 9/10 项目需满足自身依赖要求；另需 Composer、Node.js/npm 和 Redis。脚本自动安装前后端、配置 SQLite 并构建演示页面，使用 PHP 原生 Socket 驱动。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/m-finder/giorgio-im-socket/main/tools/setup.sh -o /tmp/giorgio-im-setup.sh
 bash /tmp/giorgio-im-setup.sh
 ```
 
-1. 当前为 Laravel 根目录：询问是否在当前目录安装，默认取消。
-2. 当前不是 Laravel 根目录：询问是否新建 Laravel 10，再输入空的安装目录（默认 `./laravel-im-demo`）。也可传入已有项目：`bash /tmp/giorgio-im-setup.sh /项目目录`。
-3. 提示时输入具有 `read:packages` 权限且能访问前端包的 [GitHub classic PAT](https://github.com/settings/tokens)。输入不显示，无需提前执行 `npm login`。
+按提示确认安装到当前 Laravel 项目，或选择空目录创建新项目。每次运行都需输入具有 `read:packages` 权限且能访问前端包的 [GitHub classic PAT](https://github.com/settings/tokens)，输入不会显示。
 
-脚本自动写入项目 `.npmrc`：
-
-```ini
-@m-finder:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GIORGIO_IM_NPM_TOKEN}
-```
-
-认证行保留环境变量占位符；输入的 token 仅传给本次 `npm install`，不写入项目文件。再次运行脚本时会重新询问；以后手动 `npm install` 需先设置 `GIORGIO_IM_NPM_TOKEN`。
-
-脚本自带 Blade、TS、CSS、注册登录及 Sanctum 接入代码，自动安装 `wu/giorgio-im-socket`（Composer 同时安装依赖 `wu/giorgio-socket`）、Predis、Sanctum、`@m-finder/giorgio-im` 和 Vue，配置 `.env` 与缺少的密钥，执行迁移和前端构建。
-
-会写入演示 `User` 模型、路由和配置，并将 `.env` 切换到本地 SQLite：`storage/app/im-demo/database.sqlite`。改动前的已有文件备份到 `storage/app/im-demo-backups/`；重复运行保留有效密钥和数据库数据。
-
-完成后在项目根目录的四个终端分别启动：
+安装完成后，在项目根目录打开四个终端，各运行一条命令：
 
 ```bash
 redis-server --bind 127.0.0.1 --port 16380 --save '' --appendonly no
@@ -84,7 +72,17 @@ php artisan socket:events
 php artisan serve --host=127.0.0.1 --port=8001 --no-reload
 ```
 
-打开 `http://127.0.0.1:8001/im`，用两个账号测试私聊和群聊。HTTP/Socket/Redis 默认端口为 `8001/9501/16380`，可在执行脚本前设置 `GIORGIO_IM_HTTP_PORT`、`GIORGIO_IM_SOCKET_PORT`、`GIORGIO_IM_REDIS_PORT`，启动命令以脚本输出为准。
+打开 `http://127.0.0.1:8001/im`，注册两个账号即可测试私聊和群聊。自定义端口时，以脚本打印的启动命令和地址为准。
+
+<details>
+<summary>已有项目、端口与文件改动</summary>
+
+- 指定已有项目：`bash /tmp/giorgio-im-setup.sh /项目目录`。查看用法：`bash /tmp/giorgio-im-setup.sh --help`。
+- HTTP、Socket、Redis 默认端口依次为 `8001`、`9501`、`16380`；运行前可设置 `GIORGIO_IM_HTTP_PORT`、`GIORGIO_IM_SOCKET_PORT`、`GIORGIO_IM_REDIS_PORT`。
+- 脚本会写入演示页面、User 模型、路由与配置，并修改 `.env` 使用 `storage/app/im-demo/database.sqlite`。改动前的已有文件备份到 `storage/app/im-demo-backups/`；再次运行保留数据库数据和有效密钥。
+- token 仅用于本次依赖安装，不写入项目文件。`.npmrc` 使用 `${GIORGIO_IM_NPM_TOKEN}` 占位符，以后手动安装前端依赖需先设置该环境变量。
+
+</details>
 
 ## 快速开始
 
@@ -251,6 +249,10 @@ im.getMessage({
 
 多张图片与文字一起发送时，消息使用 `attachments: ImAttachment[]`；单附件仍使用 `attachment`
 
+群聊输入 `@` 可搜索并选择成员，支持方向键和 Enter；通过 `loadGroupMembers` 加载成员，或调用 `im.setGroupMembers(id, members)` 提供成员列表。消息和发送回调中的 `mentions` 为 `{ id, username, start, end }[]`，其中 `start`、`end` 是正文的 UTF-16 索引，结束位置不包含在内。
+
+私聊和群聊均可点击消息旁的“引用消息”，发送前可取消。`replyTo` 包含原消息的 `{ mid, fromid, username, content }`，图片引用同时保留 `attachment` 或 `attachments`，在预览、消息和历史记录中显示缩略图及文字；接收消息和历史消息可携带同一结构。`createConnectedIM()` 发送时仅提交 `mid`、`fromid`，服务端校验同一会话并生成名称和正文快照。使用配套后端时，升级后先运行 `php artisan migrate`。
+
 AI 流式消息使用同一个 `mid`，每次传入完整内容：
 
 ```ts
@@ -290,12 +292,15 @@ await im.unblockFriend('alice')
 
 群使用 `ownerId`、`adminIds`、`muteAll` 表示权限和禁言状态
 
+群聊列表向左滑动可静音或取消静音消息，桌面端也可右键或按 Shift+F10。静音后保留未读红点和条数，收到 @ 自己的消息仍会提醒；群聊、最近会话和多会话列表显示静音图标。个人设置使用 `notificationsMuted`，与群禁言独立；通过 `muteGroupNotifications(group, muted)` 保存，成功后触发 `onGroupNotificationsMuted`。连接配套后端时自动保存，升级后先运行 `php artisan migrate`；独立使用时可开启 `enableLocalStorage` 保留设置。
+
 服务端返回变更后，用实例方法更新界面：
 
 ```ts
 im.updateContact(contact)
 im.setGroupMembers(groupId, members)
 im.setGroupMute(groupId, true)
+im.setGroupNotificationsMuted(groupId, true)
 im.setGroupAdmin(groupId, userId, true)
 im.removeFriend(userId)
 im.removeGroup(groupId)
@@ -330,6 +335,8 @@ const im = createIM({
 上传回调返回可访问 URL
 
 在聊天输入框粘贴或通过工具栏选择图片会累积预览多张图片，可逐张移除并与文字一起发送；发送时通过 `uploadAttachment` 上传图片
+
+点击聊天中的图片或引用缩略图可放大预览，使用上一张、下一张按钮或左右方向键切换当前会话已加载的图片，按 Esc 或点击遮罩关闭。
 
 语音录制需要 `MediaRecorder` 和麦克风权限
 

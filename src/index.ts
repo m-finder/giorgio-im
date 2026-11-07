@@ -11,7 +11,7 @@ export { zhCN, en } from './locales'
 export type { ImLocaleKey, ImLocaleMessages, ImLocaleParams, ImLocales } from './locales'
 export type {
   ImId, ImChatType, ImUser, ImContact, ImGroupMember, ImFriendGroup, ImInit,
-  ImMessage, ImChatNotice, ImReadPayload, ImReadReceipt, ImTypingPayload, ImTypingState,
+  ImMessage, ImMention, ImMessageReference, ImChatNotice, ImReadPayload, ImReadReceipt, ImTypingPayload, ImTypingState,
   ImAttachment, ImSendPayload, ImNotice, ImCreateGroupPayload, ImWidgetApi, ImOptions,
   ImBuiltinTool, ImToolbarState, ImToolbarContext, ImToolbarItem,
   ImCallType, ImCallPayload,
@@ -22,7 +22,7 @@ export function createIM(options: ImOptions): ImWidgetApi & { destroy: () => voi
   if (typeof document === 'undefined') throw new Error('createIM 只能在浏览器中调用')
   const { target = document.body, onSendMessage, onRead, onTyping, onOnline, onSign, onUsername, onAvatar, onStorageError, onChatChange, onFriendAdded, onNoticeAction,
     onFriendGroupAdded, onFriendMoved, onFriendRemoved, onFriendBlocked, onFriendUnblocked, onGroupCreated, onGroupLeft, onGroupMembersInvited,
-    onGroupMemberRemoved, onGroupDismissed, onGroupMemberMuted, onGroupMuted, onGroupRenamed, onGroupAvatarChanged, onGroupAdminChanged, ...props } = options
+    onGroupMemberRemoved, onGroupDismissed, onGroupMemberMuted, onGroupMuted, onGroupNotificationsMuted, onGroupRenamed, onGroupAvatarChanged, onGroupAdminChanged, ...props } = options
   const host = document.createElement('div')
   target.appendChild(host)
   const app = createApp(ImWidget, {
@@ -50,6 +50,7 @@ export function createIM(options: ImOptions): ImWidgetApi & { destroy: () => voi
     onGroupDismissed,
     onGroupMemberMuted,
     onGroupMuted,
+    onGroupNotificationsMuted,
     onGroupRenamed,
     onGroupAvatarChanged,
     onGroupAdminChanged,
@@ -77,6 +78,7 @@ export function createIM(options: ImOptions): ImWidgetApi & { destroy: () => voi
     getBlockedUsers: widget.getBlockedUsers,
     removeGroup: widget.removeGroup,
     setGroupMute: widget.setGroupMute,
+    setGroupNotificationsMuted: widget.setGroupNotificationsMuted,
     setGroupAdmin: widget.setGroupAdmin,
     getNotice: widget.getNotice,
     setFriendStatus: widget.setFriendStatus,

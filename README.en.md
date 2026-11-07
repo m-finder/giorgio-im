@@ -20,8 +20,13 @@ Contacts, friends, groups, messages, AI conversations and customer service mode
 ## Related packages
 
 - [Giorgio IM](https://github.com/m-finder/giorgio-im): Vue 3 + TypeScript instant messaging component
+- [Giorgio IM React](https://github.com/m-finder/giorgio-im-react): React + TypeScript instant messaging component
 - [Giorgio IM Socket](https://packagist.org/packages/wu/giorgio-im-socket): Laravel instant messaging backend
 - [Giorgio Socket](https://packagist.org/packages/wu/giorgio-socket): Laravel WebSocket infrastructure package
+
+## Quick demo package
+
+Download the `im-test-*` standalone executable for your platform (or the `.exe` for Windows) from the [Releases page](https://github.com/m-finder/giorgio-im/releases). Run it and open the demo page shown in the terminal. No PHP, Node.js, Composer or Redis installation is needed; run it with `--help` for port options. A `.phar` version is also available and requires a compatible PHP installation.
 
 ## Install
 
@@ -51,33 +56,16 @@ GitHub Packages requires authentication even for public npm packages
 
 ## Install the local demo
 
-Requires PHP 8.1+ with pdo_sqlite and mbstring, Composer, Node.js/npm, and Redis. The script installs a Laravel 10 demo using the native PHP Socket driver; Swoole is optional.
-
-Download, then run:
+The demo installer requires PHP 8.0.2+ (`pdo_sqlite` and `mbstring`). New projects use Laravel 9; existing Laravel 9/10 projects must meet their own dependency requirements. It also needs Composer, Node.js/npm and Redis. The script installs the frontend and backend, configures SQLite and builds the demo page using the native PHP Socket driver.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/m-finder/giorgio-im-socket/main/tools/setup.sh -o /tmp/giorgio-im-setup.sh
 bash /tmp/giorgio-im-setup.sh
 ```
 
-1. In a Laravel root, confirm whether to install there; the default is to cancel.
-2. Outside a Laravel root, confirm whether to create Laravel 10, then enter an empty destination (default: `./laravel-im-demo`). To select an existing project, use `bash /tmp/giorgio-im-setup.sh /path/to/project`.
-3. When prompted, enter a [GitHub classic PAT](https://github.com/settings/tokens) with `read:packages` and access to the frontend package. Input is hidden; no prior `npm login` is needed.
+Follow the prompts to install into the current Laravel project or create a project in an empty directory. Each run asks for a [GitHub classic PAT](https://github.com/settings/tokens) with `read:packages` permission and access to the frontend package. Input is hidden.
 
-The script writes this project `.npmrc`:
-
-```ini
-@m-finder:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GIORGIO_IM_NPM_TOKEN}
-```
-
-The authentication line contains an environment variable placeholder. The entered token is passed only to this `npm install` and is never written to project files. Rerunning prompts again; future manual `npm install` commands require `GIORGIO_IM_NPM_TOKEN` to be set first.
-
-The script bundles Blade, TS, CSS, registration/login, and Sanctum integration. It installs `wu/giorgio-im-socket` (Composer also installs its `wu/giorgio-socket` dependency), Predis, Sanctum, `@m-finder/giorgio-im`, and Vue; configures `.env` and missing secrets; runs migrations; and builds the frontend.
-
-It writes the demo User model, routes, and configuration, and switches `.env` to local SQLite at `storage/app/im-demo/database.sqlite`. Changed existing files are backed up under `storage/app/im-demo-backups/`. Rerunning preserves valid secrets and database contents.
-
-After installation, run one command in each of four terminals at the project root:
+After installation, open four terminals at the project root and run one command in each:
 
 ```bash
 redis-server --bind 127.0.0.1 --port 16380 --save '' --appendonly no
@@ -86,7 +74,17 @@ php artisan socket:events
 php artisan serve --host=127.0.0.1 --port=8001 --no-reload
 ```
 
-Open `http://127.0.0.1:8001/im` and test private and group messages with two accounts. HTTP/Socket/Redis ports default to `8001/9501/16380`; override them before running the script with `GIORGIO_IM_HTTP_PORT`, `GIORGIO_IM_SOCKET_PORT`, and `GIORGIO_IM_REDIS_PORT`. Use the startup commands printed by the script for custom ports.
+Open `http://127.0.0.1:8001/im` and register two accounts to try private and group chats. For custom ports, use the startup commands and address printed by the script.
+
+<details>
+<summary>Existing projects, ports and file changes</summary>
+
+- Select an existing project: `bash /tmp/giorgio-im-setup.sh /path/to/project`. Show usage: `bash /tmp/giorgio-im-setup.sh --help`.
+- HTTP, Socket and Redis ports default to `8001`, `9501` and `16380`. Set `GIORGIO_IM_HTTP_PORT`, `GIORGIO_IM_SOCKET_PORT` and `GIORGIO_IM_REDIS_PORT` before running the script to override them.
+- The script writes the demo page, User model, routes and configuration, then updates `.env` to use `storage/app/im-demo/database.sqlite`. Changed existing files are backed up under `storage/app/im-demo-backups/`. Rerunning preserves database contents and valid secrets.
+- The token is used only for this dependency installation and is never written to project files. `.npmrc` uses the `${GIORGIO_IM_NPM_TOKEN}` placeholder; set that environment variable before installing frontend dependencies manually later.
+
+</details>
 
 ## Quick start
 
@@ -245,6 +243,10 @@ Use `mid` to deduplicate normal messages
 
 Messages with multiple images and text use `attachments: ImAttachment[]`; single attachments still use `attachment`
 
+Type `@` in a group chat to search and select members with the arrow keys and Enter. Supply members through `loadGroupMembers` or `im.setGroupMembers(id, members)`. Messages and send callbacks use `mentions: { id, username, start, end }[]`; `start` and `end` are UTF-16 indices into the content, with an exclusive end.
+
+Private and group chats support “Quote message” beside each message, with cancellation before sending. `replyTo` contains the original message's `{ mid, fromid, username, content }`, plus `attachment` or `attachments` for images. Previews, messages and history show image thumbnails with their caption; incoming and historical messages use the same shape. `createConnectedIM()` submits only `mid` and `fromid` from the reference. The server checks the conversation and supplies the name and content snapshot. Run `php artisan migrate` after upgrading the companion backend.
+
 Use the same `mid` for cumulative AI streaming updates:
 
 ```ts
@@ -282,12 +284,15 @@ Unblocking does not restore friendship
 
 Groups use `ownerId`, `adminIds` and `muteAll` for roles and muting
 
+Swipe left on a group to mute or unmute notifications; desktop users can also right-click or press Shift+F10. Muted groups keep unread dots and counts, and messages mentioning you still trigger alerts. Group, recent and open-conversation lists show a muted icon. The personal `notificationsMuted` preference is separate from group speech restrictions. Save it through `muteGroupNotifications(group, muted)`; success triggers `onGroupNotificationsMuted`. The connected backend saves it automatically; run `php artisan migrate` after upgrading. Standalone widgets can retain it with `enableLocalStorage`.
+
 Apply server updates with instance methods:
 
 ```ts
 im.updateContact(contact)
 im.setGroupMembers(groupId, members)
 im.setGroupMute(groupId, true)
+im.setGroupNotificationsMuted(groupId, true)
 im.setGroupAdmin(groupId, userId, true)
 im.removeFriend(userId)
 im.removeGroup(groupId)
@@ -322,6 +327,8 @@ Configure `uploadAvatar`, `uploadGroupAvatar`, `uploadAttachment` and `uploadVoi
 Upload callbacks return accessible URLs
 
 Pasting or choosing images from the toolbar adds them to the composer. Remove individual images or add text before sending them together via `uploadAttachment`
+
+Click a chat image or quoted thumbnail to preview it. Use the previous/next buttons or arrow keys to browse loaded images in the current conversation. Press Esc or click the backdrop to close.
 
 Voice recording requires `MediaRecorder` and microphone permission
 

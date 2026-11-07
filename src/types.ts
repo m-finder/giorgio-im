@@ -26,6 +26,8 @@ export interface ImContact {
   adminIds?: ImId[]
   /** Whether all ordinary group members are muted. */
   muteAll?: boolean
+  /** Silence this user's group notifications, except messages mentioning them. */
+  notificationsMuted?: boolean
   /** Open an AI conversation in a maximised window. */
   maximized?: boolean
 }
@@ -51,10 +53,32 @@ export interface ImInit {
   recent?: (ImContact & { type: ImChatType })[]
 }
 
+/** A selected group member. Offsets are UTF-16 indices into message content. */
+export interface ImMention {
+  id: ImId
+  username: string
+  start: number
+  end: number
+}
+
+/** A text and attachment snapshot of a message in the same conversation. */
+export interface ImMessageReference {
+  mid: ImId
+  fromid: ImId
+  username: string
+  content: string
+  attachment?: ImAttachment
+  attachments?: ImAttachment[]
+}
+
 export interface ImMessage {
   id: ImId
   type: ImChatType
   content: string
+  /** Group mentions selected in the composer. */
+  mentions?: ImMention[]
+  /** Original message identity and display snapshot for a reply. */
+  replyTo?: ImMessageReference
   username?: string
   groupname?: string
   avatar?: string
@@ -128,6 +152,8 @@ export interface ImSendPayload {
   user: ImUser
   receiver: ImContact & { type: ImChatType }
   content: string
+  mentions?: ImMention[]
+  replyTo?: ImMessageReference
   timestamp: number
   attachment?: ImAttachment
   /** Images sent together in one message. */
@@ -227,6 +253,8 @@ export interface ImWidgetApi {
   removeGroup: (id: ImId) => void
   /** Apply a server mute update; omit memberId to update all-member muting. */
   setGroupMute: (id: ImId, muted: boolean, memberId?: ImId) => void
+  /** Apply this user's notification preference without calling persistence callbacks. */
+  setGroupNotificationsMuted: (id: ImId, muted: boolean) => void
   /** Apply a server administrator update without calling management callbacks. */
   setGroupAdmin: (id: ImId, memberId: ImId, admin: boolean) => void
   getNotice: (notice: ImNotice) => void
@@ -258,7 +286,7 @@ export interface ImOptions {
   /** Reports unreadable backups or failed writes; messaging remains available. */
   onStorageError?: (error: Error) => void
   loadHistory?: (receiver: ImContact & { type: ImChatType }) => Promise<ImMessage[]> | ImMessage[]
-  /** Load the selected group's members when its member list is opened. */
+  /** Load group members when opening the member list or composing an @ mention. */
   loadGroupMembers?: (receiver: ImContact & { type: 'group' }) => Promise<ImGroupMember[]> | ImGroupMember[]
   findContacts?: (query: string) => Promise<ImContact[]> | ImContact[]
   requestFriend?: (contact: ImContact) => Promise<boolean | void> | boolean | void
@@ -279,6 +307,8 @@ export interface ImOptions {
   dismissGroup?: (receiver: ImContact & { type: 'group' }) => Promise<boolean | void> | boolean | void
   muteGroupMember?: (receiver: ImContact & { type: 'group' }, member: ImGroupMember, muted: boolean) => Promise<boolean | void> | boolean | void
   muteGroup?: (receiver: ImContact & { type: 'group' }, muted: boolean) => Promise<boolean | void> | boolean | void
+  /** Save a personal notification preference; false or throw leaves it unchanged. */
+  muteGroupNotifications?: (receiver: ImContact & { type: 'group' }, muted: boolean) => Promise<boolean | void> | boolean | void
   /** Owner-only appointment or removal of a group administrator. */
   setGroupAdmin?: (receiver: ImContact & { type: 'group' }, member: ImGroupMember, admin: boolean) => Promise<boolean | void> | boolean | void
   /** Save a new group name; return false or throw to keep the original name. */
@@ -330,6 +360,7 @@ export interface ImOptions {
   onGroupDismissed?: (group: ImContact) => void
   onGroupMemberMuted?: (group: ImContact, member: ImGroupMember, muted: boolean) => void
   onGroupMuted?: (group: ImContact, muted: boolean) => void
+  onGroupNotificationsMuted?: (group: ImContact, muted: boolean) => void
   /** Reports the updated group after a successful name change. */
   onGroupRenamed?: (group: ImContact) => void
   /** Reports the updated group after a successful avatar change. */
