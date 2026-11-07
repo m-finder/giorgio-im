@@ -100,6 +100,8 @@
 .gim-conversation-row>button:first-child { display:flex; align-items:center; gap:9px; min-width:0; flex:1; height:51px; padding:5px 7px; border:0; background:transparent; color:#506078; text-align:left; }
 .gim-conversation-row .gim-avatar { width:32px; height:32px; border-radius:10px; font-size:12px; }
 .gim-conversation-name { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:12px; }
+.gim-group-notifications-muted { display:inline-flex; flex:none; align-items:center; justify-content:center; color:var(--gim-muted); }
+.gim-root .gim-group-notifications-muted svg { width:16px; height:16px; }
 .gim-conversation-close { padding:5px 8px; border:0; background:transparent; color:#a3afbf; font-size:18px; }
 .gim-conversation-close:hover { color:#e45368; }
 .gim-tab-dot { width:6px; height:6px; border-radius:50%; background:#ff7183; }
@@ -135,7 +137,43 @@
 .gim-message-image { display:block; max-width:min(240px,100%); max-height:220px; border-radius:7px; object-fit:contain; }
 .gim-message-images { display:flex; flex-wrap:wrap; gap:5px; max-width:490px; }
 .gim-message-images .gim-message-image { max-width:min(160px,100%); max-height:160px; }
+.gim-root .gim-image-button { display:inline-flex; flex:none; max-width:100%; padding:0; border:0; border-radius:7px; background:transparent; cursor:zoom-in; vertical-align:middle; }
+.gim-image-button:focus-visible { outline:2px solid var(--gim-blue); outline-offset:3px; }
+.gim-image-viewer { position:fixed; inset:0; z-index:10020; display:flex; align-items:center; justify-content:center; padding:64px 52px; background:#0b1220ed; outline:0; }
+.gim-image-viewer figure { min-width:0; max-width:100%; margin:0; }
+.gim-preview-image { display:block; max-width:100%; max-height:calc(100dvh - 164px); margin:auto; object-fit:contain; }
+.gim-image-viewer figcaption { display:flex; justify-content:space-between; gap:16px; padding-top:12px; color:#e2e8f0; font-size:12px; }
+.gim-image-viewer figcaption>span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gim-image-counter { flex:none; }
+.gim-image-viewer button { position:absolute; display:grid; place-items:center; width:40px; height:40px; padding:0; border:0; border-radius:50%; background:#ffffff24; color:white; font-size:32px; line-height:1; }
+.gim-image-viewer button:hover { background:#ffffff3d; }
+.gim-image-viewer button:focus-visible { outline:2px solid white; outline-offset:3px; }
+.gim-image-viewer button:disabled { opacity:.3; }
+.gim-image-close { top:16px; right:16px; }
+.gim-image-previous { top:calc(50% - 20px); left:8px; }
+.gim-image-next { top:calc(50% - 20px); right:8px; }
 .gim-message-caption { display:block; margin-top:6px; }
+.gim-mention { color:var(--gim-blue); font-weight:600; }
+.gim-mention-me { border-radius:3px; background:#f4bb3540; }
+.gim-message.mine .gim-mention { color:inherit; text-decoration:underline; }
+.gim-message-quote { display:flex; flex-direction:column; gap:3px; margin:0 0 6px; padding:5px 8px; border-left:3px solid currentColor; background:#edf2f8; color:#53637a; font-size:11px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.gim-message-quote span { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.gim-quote-images { display:flex; flex-wrap:wrap; gap:4px; }
+.gim-quote-image { display:block; width:64px; height:64px; max-width:100%; border-radius:4px; object-fit:contain; }
+.gim-quote-action { padding:2px 4px; border:0; border-radius:4px; background:transparent; color:var(--gim-muted); font-size:10px!important; }
+.gim-quote-action:hover,.gim-quote-action:focus-visible { color:var(--gim-blue); background:#8491a41a; }
+.gim-reply-preview { display:flex; align-items:center; gap:8px; margin:4px 0 8px; padding:7px 10px; border-left:3px solid var(--gim-blue); background:#edf2f8; color:#53637a; font-size:11px; }
+.gim-reply-preview>div { display:flex; flex:1; min-width:0; flex-direction:column; gap:3px; }
+.gim-reply-preview span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gim-reply-preview button { border:0; background:transparent; color:inherit; }
+.gim-composer-input { position:relative; }
+.gim-mention-picker { position:absolute; z-index:3; bottom:100%; left:0; width:min(280px,100%); max-height:190px; overflow:auto; padding:5px; border:1px solid var(--gim-line); border-radius:8px; background:#fff; box-shadow:0 4px 18px #0002; }
+.gim-mention-picker p { margin:8px; color:var(--gim-muted); font-size:12px; }
+.gim-mention-option { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:8px; border:0; border-radius:5px; background:transparent; color:var(--gim-ink); text-align:left; font-size:12px!important; }
+.gim-mention-option strong { overflow:hidden; text-overflow:ellipsis; }
+.gim-mention-option small { color:var(--gim-muted); }
+.gim-mention-option.active,.gim-mention-option:hover { background:#8491a41a; }
+.gim-dark .gim-mention-picker { background:#1e293b; }
 .gim-bubble a { color:inherit; text-decoration:underline; }
 .gim-ai-chat .gim-message-body { max-width:86%; }
 .gim-ai-progress { display:flex; align-items:center; gap:8px; color:var(--gim-muted); font-size:11px; }
@@ -262,6 +300,7 @@
 .gim-dark .gim-contact-copy strong,.gim-dark .gim-bubble,.gim-dark .gim-chat-heading strong { color:#e7edf8; }
 .gim-dark .gim-bubble { background:#34445c; border-color:#46566c; }
 .gim-dark .gim-message.mine .gim-bubble { background:#426cf0; }
+.gim-dark .gim-message-quote,.gim-dark .gim-reply-preview { background:#43536b; color:#e7edf8; }
 .gim-dark .gim-settings select,.gim-dark .gim-find-form input { background:#26364e; color:#e7edf8; }
 .gim-dark .gim-settings label,.gim-dark .gim-profile-info strong,.gim-dark .gim-presence select,.gim-dark .gim-modal>header strong,.gim-dark .gim-find-row strong,.gim-dark .gim-notice strong,.gim-dark .gim-history-row strong { color:#e7edf8; }
 .gim-dark .gim-find-row>button:disabled { background:#40516b; color:#aebbd0; }
@@ -291,6 +330,12 @@
 .gim-actions-open .gim-friend-actions,.gim-swiping .gim-friend-actions { visibility:visible; }
 .gim-swiping>.gim-contact { transition:none; }
 .gim-actions-open>.gim-contact { transform:translateX(-144px); }
+.gim-group-actions { position:absolute; inset:0 0 0 auto; display:flex; width:72px; visibility:hidden; }
+.gim-group-actions button { width:72px; padding:6px; border:0; color:white; background:#596579; font-size:12px; }
+.gim-actions-open .gim-group-actions,.gim-swiping .gim-group-actions { visibility:visible; }
+.gim-group-row.gim-actions-open>.gim-contact { transform:translateX(-72px); }
+.gim-group-actions button:disabled { opacity:.55; }
+@media (max-width:540px) { .gim-conversation-row .gim-group-notifications-muted { position:absolute; right:3px; bottom:2px; padding:1px; border-radius:4px; background:var(--gim-line); } .gim-conversation-row { position:relative; } }
 .gim-blocklist-entry { display:flex; justify-content:space-between; padding:12px 0; color:var(--gim-ink); background:transparent; border:0; border-bottom:1px solid var(--gim-line); }
 .gim-blocklist-entry span { color:var(--gim-muted); }
 .gim-blocklist-row { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--gim-line); }

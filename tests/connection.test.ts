@@ -191,6 +191,41 @@ describe('Laravel and Giorgio Socket connection', () => {
     expect(target.querySelector('.gim-chat')).toBeNull()
   })
 
+  it('persists personal group notification mute and applies self preference updates without losing it on general group events', async () => {
+    let finish!: (response: unknown) => void
+    let events: { id: number; type: string; data: Record<string, unknown> }[] = []
+    const fetch = setup((path, options) => {
+      if (path === '/groups/3/notifications' && options?.method === 'PATCH') return new Promise(resolve => { finish = resolve })
+      if (path.startsWith('/socket-events?')) return { events, cursor: events.at(-1)?.id ?? 0, hasMore: false }
+      if (path === '/groups/3/members') return []
+    })
+    const target = document.createElement('div')
+    const im = await connect({ token: 'token', widget: { target, messageSound: false } })
+    im.open()
+    await nextTick()
+    target.querySelectorAll<HTMLButtonElement>('.gim-tabs button')[1].click()
+    await nextTick()
+    target.querySelector('.gim-group-row .gim-contact')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    await nextTick()
+    target.querySelector<HTMLButtonElement>('[aria-label="静音 Team 的消息"]')!.click()
+    await flushPromises()
+    const request = fetch.mock.calls.find(([url, options]) => url.endsWith('/groups/3/notifications') && options?.method === 'PATCH')
+    expect(JSON.parse(request![1]!.body as string)).toEqual({ muted: true })
+    expect(target.querySelector('.gim-group-notifications-muted')).toBeNull()
+    finish({ ok: true })
+    await flushPromises()
+    expect(target.querySelector('.gim-group-notifications-muted')).not.toBeNull()
+    events = [{ id: 1, type: 'group.updated', data: { contact: { ...init.group![0], type: 'group', groupname: 'Renamed' } } }]
+    await im.sync()
+    await nextTick()
+    expect(target.querySelector('.gim-group-row .gim-contact-copy strong')?.textContent).toBe('Renamed')
+    expect(target.querySelector('.gim-group-notifications-muted')).not.toBeNull()
+    events = [{ id: 2, type: 'group.updated', data: { contact: { ...init.group![0], type: 'group', notificationsMuted: false } } }]
+    await im.sync()
+    await nextTick()
+    expect(target.querySelector('.gim-group-notifications-muted')).toBeNull()
+  })
+
   it('reuses the optimistic message ID for sends and retries, without duplicating the server echo', async () => {
     let payload: ImSendPayload | undefined
     const sent: Record<string, unknown>[] = []
@@ -217,6 +252,25 @@ describe('Laravel and Giorgio Socket connection', () => {
     await nextTick()
     expect({ ids: sent.map(message => message.mid), bubbles: target.querySelectorAll('.gim-bubble').length, authenticated: fetch.mock.calls.every(([, options]) => (options?.headers as Record<string, string>).Authorization === 'Bearer token') })
       .toEqual({ ids: [payload!.mid, payload!.mid], bubbles: 1, authenticated: true })
+  })
+
+  it.each(['friend', 'group'] as const)('posts only the original message identity when quoting in a %s chat', async type => {
+    const fetch = setup()
+    const im = await connect()
+    await im.sendMessage({ user: init.user, receiver: { id: type === 'group' ? 3 : 2, type }, content: 'Reply',
+      replyTo: { mid: 'original', fromid: 2, username: 'Local name', content: 'Local snapshot',
+        attachment: { kind: 'image', url: 'https://example.test/photo.png', name: 'photo.png' } }, timestamp: Date.now() })
+    expect(JSON.parse(fetch.mock.calls.find(([url, options]) => url.endsWith('/messages') && options?.method === 'POST')![1]!.body as string))
+      .toEqual({ id: type === 'group' ? 3 : 2, type, mid: expect.any(String), content: 'Reply', replyTo: { mid: 'original', fromid: 2 } })
+  })
+
+  it('posts selected group member identities and their mention positions', async () => {
+    const fetch = setup()
+    const im = await connect()
+    const mentions = [{ id: 2, username: 'Alice', start: 0, end: 6 }]
+    await im.sendMessage({ user: init.user, receiver: { id: 3, type: 'group' }, content: '@Alice hello', mentions, timestamp: Date.now() })
+    expect(JSON.parse(fetch.mock.calls.find(([url, options]) => url.endsWith('/messages') && options?.method === 'POST')![1]!.body as string))
+      .toMatchObject({ content: '@Alice hello', mentions })
   })
 
   it('posts all images in a multi-image message', async () => {

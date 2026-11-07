@@ -5,12 +5,13 @@ import { createLocalBackup, type LocalBackup } from './storage'
 import { useVoiceRecorder } from './voice'
 import { useMessageSound } from './notifications'
 import { createUuid } from './uuid'
+import { editMentions, messageParts, quoteImages, quoteText } from './message-content'
 import { LocaleError, useImLocale } from './i18n'
 import type { ImLocaleKey } from './locales'
 import defaultAvatar from './assets/default-avatar.png'
 import aiAvatar from './assets/ai-avatar.svg'
 import MarkdownIt from 'markdown-it'
-import type { ImAttachment, ImCallType, ImChatNotice, ImChatType, ImContact, ImFriendGroup, ImGroupMember, ImId, ImInit, ImMessage, ImNotice, ImOptions, ImReadPayload, ImReadReceipt, ImSendPayload, ImToolbarItem, ImToolbarState, ImTypingPayload, ImTypingState } from './types'
+import type { ImAttachment, ImCallType, ImChatNotice, ImChatType, ImContact, ImFriendGroup, ImGroupMember, ImId, ImInit, ImMention, ImMessage, ImMessageReference, ImNotice, ImOptions, ImReadPayload, ImReadReceipt, ImSendPayload, ImToolbarItem, ImToolbarState, ImTypingPayload, ImTypingState } from './types'
 
 type ChatContact = ImContact & { type: ImChatType }
 type GroupContact = ImContact & { type: 'group' }
@@ -39,6 +40,7 @@ const props = withDefaults(defineProps<{
   dismissGroup?: ImOptions['dismissGroup']
   muteGroupMember?: ImOptions['muteGroupMember']
   muteGroup?: ImOptions['muteGroup']
+  muteGroupNotifications?: ImOptions['muteGroupNotifications']
   setGroupAdmin?: ImOptions['setGroupAdmin']
   renameGroup?: ImOptions['renameGroup']
   uploadGroupAvatar?: ImOptions['uploadGroupAvatar']
@@ -82,6 +84,7 @@ const emit = defineEmits<{
   groupDismissed: [group: ImContact]
   groupMemberMuted: [group: ImContact, member: ImGroupMember, muted: boolean]
   groupMuted: [group: ImContact, muted: boolean]
+  groupNotificationsMuted: [group: ImContact, muted: boolean]
   groupRenamed: [group: ImContact]
   groupAvatarChanged: [group: ImContact]
   groupAdminChanged: [group: ImContact, member: ImGroupMember, admin: boolean]
@@ -106,10 +109,24 @@ const friendMoveError = ref<string | Error>('')
 const friendDragClick = ref(false)
 const friendActionsId = ref<string | null>(null)
 const friendSwipe = ref<{ id: string; offset: number } | null>(null)
+const groupActionsId = ref<string | null>(null)
+const groupSwipe = ref<{ id: string; offset: number } | null>(null)
+const groupSwipeClick = ref(false)
+const groupNotificationBusy = reactive(new Set<string>())
+const groupNotificationError = ref<string | Error>('')
 const blockedUsers = ref<ImContact[]>((props.init.blocked || []).map(contact => ({ ...contact })))
 const draft = ref('')
+let previousDraft = ''
+const composerInput = ref<HTMLTextAreaElement | null>(null)
+const draftMentions = ref<ImMention[]>([])
+const mentionQuery = ref<{ start: number; end: number; query: string } | null>(null)
+const mentionIndex = ref(0)
+const replyTo = ref<ImMessageReference | null>(null)
 const pendingImages = ref<{ file: File; url: string }[]>([])
 const imageSending = ref(false)
+const imagePreviewUrl = ref<string | null>(null)
+const imageViewer = ref<HTMLElement | null>(null)
+let imagePreviewTrigger: HTMLElement | null = null
 const sign = ref(props.init.user.sign || '')
 const savedSign = ref(sign.value)
 const username = ref(props.init.user.username)
@@ -206,6 +223,7 @@ const emojis = [
 ]
 let stopDrag: (() => void) | null = null
 let stopFriendDrag: (() => void) | null = null
+let stopGroupSwipe: (() => void) | null = null
 let localBackup: ReturnType<typeof createLocalBackup> | undefined
 const backupUserId = props.init.user.id
 let backupMounted = false
@@ -218,7 +236,7 @@ const addedGroups = ref<ImContact[]>([])
 const removedFriendIds = ref<Set<string>>(new Set())
 const removedGroupIds = ref<Set<string>>(new Set())
 const groupMemberCounts = reactive<Record<string, number>>({})
-const groupProfiles = reactive<Record<string, { groupname?: string; avatar?: string; adminIds?: ImId[] }>>({})
+const groupProfiles = reactive<Record<string, { groupname?: string; avatar?: string; adminIds?: ImId[]; notificationsMuted?: boolean }>>({})
 const groups = computed(() => [...new Map([...(contactSnapshot.value?.group ?? props.init.group ?? []), ...addedGroups.value].map(contact => [String(contact.id), contact])).values()]
   .filter(contact => !removedGroupIds.value.has(String(contact.id)))
   .map(contact => ({ ...contact, ...groupProfiles[String(contact.id)], members: groupMemberCounts[String(contact.id)] ?? contact.members, type: 'group' as const })))
@@ -252,6 +270,23 @@ const toolbarItems = computed(() => {
     .sort((a, b) => Number(a.align === 'right') - Number(b.align === 'right') || a.order - b.order)
 })
 const activeMessages = computed(() => activeKey.value ? messages[activeKey.value] || [] : [])
+const imageGallery = computed(() => {
+  const images = new Map<string, ImAttachment>()
+  for (const message of activeMessages.value) {
+    if (message.notice) continue
+    for (const image of [...(message.replyTo ? quoteImages(message.replyTo) : []), ...quoteImages(message)]) {
+      if (safeAttachmentUrl(image.url) && !images.has(image.url)) images.set(image.url, image)
+    }
+  }
+  for (const image of replyTo.value ? quoteImages(replyTo.value) : []) {
+    if (safeAttachmentUrl(image.url) && !images.has(image.url)) images.set(image.url, image)
+  }
+  return [...images.values()]
+})
+const previewImageIndex = computed(() => imageGallery.value.findIndex(image => image.url === imagePreviewUrl.value))
+const previewImage = computed(() => imageGallery.value[previewImageIndex.value])
+const mentionCandidates = computed(() => (groupMembers[activeKey.value || ''] || []).filter(member => String(member.id) !== String(props.init.user.id)
+  && !isBlocked(member.id) && displayName(member).toLocaleLowerCase().includes(mentionQuery.value?.query.toLocaleLowerCase() || '')))
 const typingLabel = computed(() => {
   const states = Object.values(typingStates[activeKey.value || ''] || {})
   if (!states.length) return ''
@@ -261,9 +296,9 @@ const typingLabel = computed(() => {
 })
 const totalUnread = computed(() => props.customerService ? unread[keyOf(props.customerService.type, props.customerService.id)] || 0 : Object.values(unread).reduce((sum, count) => sum + count, 0))
 const unreadContacts = computed(() => recentKeys.value
-  .filter(key => unread[key] > 0 && conversations[key] && !isConversationOpen(key))
+  .filter(key => unread[key] > 0 && conversations[key] && alertUnreadCount(key) > 0 && (!isConversationOpen(key) || unreadMentions(key).length > 0))
   .map(key => conversations[key]))
-const notificationUnread = computed(() => unreadContacts.value.reduce((sum, contact) => sum + unread[keyOf(contact.type, contact.id)], 0))
+const notificationUnread = computed(() => unreadContacts.value.reduce((sum, contact) => sum + alertUnreadCount(keyOf(contact.type, contact.id)), 0))
 const unreadNotices = computed(() => notices.value.filter(notice => !notice.read).length)
 const addedFriends = ref<{ contact: ImContact; groupId?: ImId }[]>([])
 const addedFriendGroups = ref<ImFriendGroup[]>([])
@@ -327,8 +362,20 @@ watch(() => props.notices, value => {
   for (const notice of value || []) if (!notices.value.some(item => String(item.id) === String(notice.id))) notices.value.push({ ...notice })
 }, { deep: true })
 watch(activeMessages, () => scrollToBottom(), { deep: true })
+watch([activeKey, chatOpen], closeImagePreview, { flush: 'sync' })
+watch(imageViewer, element => element?.focus(), { flush: 'post' })
 watch([activeKey, chatOpen, pageVisible, activeMessages], markViewedMessages, { deep: true, flush: 'post' })
 watch(draft, value => { if (!value.trim()) stopTyping() })
+watch(draft, value => {
+  draftMentions.value = editMentions(draftMentions.value, previousDraft, value)
+  previousDraft = value
+  mentionQuery.value = null
+}, { flush: 'sync' })
+watch([activeKey, composerRestriction], () => {
+  replyTo.value = null
+  draftMentions.value = []
+  mentionQuery.value = null
+}, { flush: 'sync' })
 watch([activeKey, chatOpen, pageVisible, composerRestriction], stopTyping, { flush: 'sync' })
 watch(activeKey, () => {
   clearPendingImages()
@@ -388,6 +435,7 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', updatePageVisibility)
   stopDrag?.()
   stopFriendDrag?.()
+  stopGroupSwipe?.()
   for (const timer of aiTimers.values()) clearTimeout(timer)
   for (const timer of typingTimers.values()) clearTimeout(timer)
 })
@@ -563,10 +611,23 @@ function isConversationVisible(key: string): boolean {
 function isConversationOpen(key: string): boolean {
   return pageVisible.value && chatOpen.value && openKeys.value.includes(key)
 }
-function markUnread(key: string): void {
+function mentionsCurrentUser(message: ImMessage): boolean {
+  return message.type === 'group' && messageParts(message).some(part => part.mention && String(part.mention.id) === String(props.init.user.id))
+}
+function unreadMentions(key: string): ViewMessage[] {
+  return unread[key] > 0 ? (messages[key] || []).filter(message => !message.mine && !message.notice).slice(-unread[key]).filter(mentionsCurrentUser) : []
+}
+function alertUnreadCount(key: string): number {
+  return isGroupNotificationsMuted(conversations[key]) ? unreadMentions(key).length : unread[key] || 0
+}
+function shouldAlert(key: string, message?: ImMessage): boolean {
+  const mentioned = !!message && mentionsCurrentUser(message)
+  return (!isGroupNotificationsMuted(conversations[key]) || mentioned) && (!isConversationOpen(key) || mentioned)
+}
+function markUnread(key: string, message?: ImMessage): void {
   if (isConversationVisible(key)) return
   unread[key] = (unread[key] || 0) + 1
-  if (!isConversationOpen(key)) messageAlertVersion.value++
+  if (shouldAlert(key, message)) messageAlertVersion.value++
 }
 
 function openUnreadMessages(): void {
@@ -597,6 +658,7 @@ function resetWindows(): void {
   close()
   stopDrag?.()
   stopFriendDrag?.()
+  stopGroupSwipe?.()
   panelPosition.value = chatPosition.value = null
   openKeys.value = []
   activeKey.value = null
@@ -869,6 +931,8 @@ function removeGroup(id: ImId): void {
   delete groupProfiles[String(id)]
   delete groupMuteStates[String(id)]
   delete groupMemberMuteStates[String(id)]
+  if (groupSwipe.value?.id === String(id)) stopGroupSwipe?.()
+  if (groupActionsId.value === String(id)) groupActionsId.value = null
   if (managedGroup.value && String(managedGroup.value.id) === String(id)) utility.value = null
 }
 
@@ -926,13 +990,84 @@ function groupInfo(receiver: GroupContact): GroupContact {
   return { ...receiver, ...groups.value.find(group => String(group.id) === String(receiver.id)), ...groupProfiles[String(receiver.id)], type: 'group' }
 }
 
-function applyGroupProfile(receiver: GroupContact, profile: { groupname?: string; avatar?: string; adminIds?: ImId[] }): GroupContact {
+function applyGroupProfile(receiver: GroupContact, profile: { groupname?: string; avatar?: string; adminIds?: ImId[]; notificationsMuted?: boolean }): GroupContact {
   groupProfiles[String(receiver.id)] = { ...groupProfiles[String(receiver.id)], ...profile }
   const group = groupInfo(receiver)
   const key = keyOf('group', receiver.id)
   if (conversations[key]) Object.assign(conversations[key], profile)
   if (managedGroup.value && String(managedGroup.value.id) === String(receiver.id)) managedGroup.value = group
   return group
+}
+
+function isGroupNotificationsMuted(contact?: ImContact): boolean {
+  return contact?.type === 'group' && (groupProfiles[String(contact.id)]?.notificationsMuted
+    ?? groups.value.find(group => String(group.id) === String(contact.id))?.notificationsMuted ?? contact.notificationsMuted ?? false)
+}
+
+function setGroupNotificationsMuted(id: ImId, muted: boolean): void {
+  if (removedGroupIds.value.has(String(id))) return
+  applyGroupProfile({ id, type: 'group' }, { notificationsMuted: muted })
+}
+
+async function toggleGroupNotifications(contact: ImContact): Promise<void> {
+  const id = String(contact.id)
+  if (groupNotificationBusy.has(id) || removedGroupIds.value.has(id)) return
+  const receiver = groupInfo({ ...contact, type: 'group' })
+  const muted = !isGroupNotificationsMuted(receiver)
+  groupNotificationBusy.add(id)
+  groupNotificationError.value = ''
+  try {
+    if (await props.muteGroupNotifications?.(receiver, muted) === false) throw new LocaleError('groupNotificationsFailed')
+    if (disposed || removedGroupIds.value.has(id)) return
+    setGroupNotificationsMuted(contact.id, muted)
+    groupActionsId.value = null
+    emit('groupNotificationsMuted', groupInfo(receiver), muted)
+  } catch { groupNotificationError.value = new LocaleError('groupNotificationsFailed') }
+  finally { groupNotificationBusy.delete(id) }
+}
+
+function startGroupSwipe(event: PointerEvent, contact: ImContact): void {
+  if ((event.button !== 0 && event.pointerType !== 'touch') || groupNotificationBusy.has(String(contact.id))) return
+  stopGroupSwipe?.()
+  const element = event.currentTarget as HTMLElement
+  const startX = event.clientX
+  const startY = event.clientY
+  const wasOpen = groupActionsId.value === String(contact.id)
+  const actionWidth = 72
+  let axis: 'swipe' | 'scroll' | undefined
+  let distance = 0
+  const move = (pointer: PointerEvent) => {
+    if (pointer.pointerId !== event.pointerId) return
+    const dx = pointer.clientX - startX
+    const dy = pointer.clientY - startY
+    if (!axis) {
+      if (Math.hypot(dx, dy) < 8) return
+      axis = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'swipe' : 'scroll'
+      if (axis === 'swipe') element.setPointerCapture?.(event.pointerId)
+    }
+    if (axis !== 'swipe') return
+    pointer.preventDefault()
+    groupSwipeClick.value = true
+    distance = dx
+    groupSwipe.value = { id: String(contact.id), offset: Math.max(-actionWidth, Math.min(0, (wasOpen ? -actionWidth : 0) + dx)) }
+  }
+  const finish = (pointer: PointerEvent) => {
+    if (pointer.pointerId !== event.pointerId) return
+    if (pointer.type === 'pointerup' && axis === 'swipe') groupActionsId.value = distance < -40 ? String(contact.id) : distance > 40 ? null : wasOpen ? String(contact.id) : null
+    stopGroupSwipe?.()
+    setTimeout(() => { groupSwipeClick.value = false }, 0)
+  }
+  stopGroupSwipe = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', finish)
+    window.removeEventListener('pointercancel', finish)
+    if (element.hasPointerCapture?.(event.pointerId)) element.releasePointerCapture(event.pointerId)
+    groupSwipe.value = null
+    stopGroupSwipe = null
+  }
+  window.addEventListener('pointermove', move, { passive: false })
+  window.addEventListener('pointerup', finish)
+  window.addEventListener('pointercancel', finish)
 }
 
 async function saveGroupProfile(event?: Event): Promise<void> {
@@ -1369,8 +1504,8 @@ function getMessage(message: ImMessage): void {
   messages[key].push(item)
   remember(key)
   if (!item.mine && !isConversationVisible(key)) {
-    markUnread(key)
-    if (!isConversationOpen(key)) void playMessageSound()
+    markUnread(key, item)
+    if (shouldAlert(key, item)) void playMessageSound()
   }
   scrollToBottom()
 }
@@ -1514,6 +1649,11 @@ async function send(): Promise<void> {
   const receiver = active.value
   const images = pendingImages.value
   if ((!content && !images.length) || !receiver || messageRestriction(receiver) || voiceState.value !== 'idle' || imageSending.value) return
+  const offset = draft.value.length - draft.value.trimStart().length
+  const mentions = receiver.type === 'group' ? draftMentions.value
+    .filter(mention => groupMembers[activeKey.value || '']?.some(member => String(member.id) === String(mention.id)))
+    .map(mention => ({ ...mention, start: mention.start - offset, end: mention.end - offset })).sort((a, b) => a.start - b.start) : []
+  const metadata = { ...(mentions.length ? { mentions } : {}), ...(replyTo.value ? { replyTo: { ...replyTo.value } } : {}) }
   let attachment: ImAttachment | undefined
   let attachments: ImAttachment[] | undefined
   if (images.length) {
@@ -1540,14 +1680,60 @@ async function send(): Promise<void> {
   const messageContent = content || images[0]?.file.name || ''
   const timestamp = Date.now()
   const mid = createUuid()
-  getMessage({ id: receiver.id, type: receiver.type, content: messageContent, ...(attachment ? { attachment } : {}), ...(attachments ? { attachments } : {}), mid, username: username.value, avatar: userAvatar.value, timestamp, fromid: props.init.user.id, mine: true })
+  getMessage({ id: receiver.id, type: receiver.type, content: messageContent, ...metadata, ...(attachment ? { attachment } : {}), ...(attachments ? { attachments } : {}), mid, username: username.value, avatar: userAvatar.value, timestamp, fromid: props.init.user.id, mine: true })
   draft.value = ''
+  replyTo.value = null
   clearPendingImages()
   if (receiver.type === 'ai') startAIReply(receiver)
-  emit('sendMessage', { user: currentUser.value, receiver, content: messageContent, ...(attachment ? { attachment } : {}), ...(attachments ? { attachments } : {}), timestamp, mid })
+  emit('sendMessage', { user: currentUser.value, receiver, content: messageContent, ...metadata, ...(attachment ? { attachment } : {}), ...(attachments ? { attachments } : {}), timestamp, mid })
+}
+
+function updateMentionQuery(event: Event): void {
+  const input = event.target as HTMLTextAreaElement
+  const match = /(?:^|\s)@([^@\s]*)$/.exec(input.value.slice(0, input.selectionStart))
+  if (active.value?.type !== 'group' || composerRestriction.value || imageSending.value || !match || input.selectionStart !== input.selectionEnd
+    || draftMentions.value.some(mention => input.selectionStart > mention.start && input.selectionStart <= mention.end)) {
+    mentionQuery.value = null
+    return
+  }
+  mentionQuery.value = { start: input.selectionStart - match[1].length - 1, end: input.selectionStart, query: match[1] }
+  mentionIndex.value = 0
+  if (!groupMembers[activeKey.value || ''] && !groupMembersError[activeKey.value || '']) void fetchGroupMembers(active.value)
+}
+
+function selectMention(member: ImGroupMember): void {
+  const query = mentionQuery.value
+  if (!query || composerRestriction.value || imageSending.value || !mentionCandidates.value.some(item => String(item.id) === String(member.id))) return
+  const name = displayName(member)
+  draft.value = `${draft.value.slice(0, query.start)}@${name} ${draft.value.slice(query.end)}`
+  const end = query.start + name.length + 1
+  draftMentions.value = [...draftMentions.value, { id: member.id, username: name, start: query.start, end }]
+  mentionQuery.value = null
+  void nextTick(() => { composerInput.value?.focus(); composerInput.value?.setSelectionRange(end + 1, end + 1) })
+  publishTyping()
+}
+
+function quoteMessage(message: ViewMessage): void {
+  const fromid = message.mine ? props.init.user.id : message.fromid ?? (message.type === 'friend' ? message.id : undefined)
+  if (message.type === 'ai' || message.notice || message.mid === undefined || fromid === undefined || composerRestriction.value || imageSending.value || voiceSending.value) return
+  replyTo.value = { mid: message.mid, fromid, username: message.mine ? username.value : message.username || displayName(active.value!),
+    content: message.content || message.attachment?.name || message.attachments?.map(image => image.name).join(', ') || '',
+    ...(message.attachment ? { attachment: { ...message.attachment } } : {}),
+    ...(message.attachments?.length ? { attachments: message.attachments.map(attachment => ({ ...attachment })) } : {}) }
+  void nextTick(() => composerInput.value?.focus())
 }
 
 function onComposerKeydown(event: KeyboardEvent): void {
+  if (event.isComposing || (event as KeyboardEvent & { nativeEvent?: KeyboardEvent }).nativeEvent?.isComposing) return
+  if (mentionQuery.value) {
+    if (event.key === 'Escape') { event.preventDefault(); mentionQuery.value = null; return }
+    if (mentionCandidates.value.length && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab'].includes(event.key) && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') mentionIndex.value = (mentionIndex.value + (event.key === 'ArrowDown' ? 1 : -1) + mentionCandidates.value.length) % mentionCandidates.value.length
+      else selectMention(mentionCandidates.value[mentionIndex.value] || mentionCandidates.value[0])
+      return
+    }
+  }
   if (event.key === 'Enter' && !event.isComposing && (sendKey.value === 'ctrl-enter' ? event.ctrlKey || event.metaKey : !event.shiftKey && !event.ctrlKey && !event.metaKey)) {
     event.preventDefault()
     send()
@@ -1602,6 +1788,38 @@ function safeAttachmentUrl(url: string): string {
   } catch { return '' }
 }
 
+function openImagePreview(image: ImAttachment, event: MouseEvent): void {
+  if (!safeAttachmentUrl(image.url)) return
+  imagePreviewTrigger = event.currentTarget as HTMLElement
+  imagePreviewUrl.value = image.url
+}
+
+function closeImagePreview(): void {
+  imagePreviewUrl.value = null
+  if (imagePreviewTrigger?.isConnected) imagePreviewTrigger.focus()
+  imagePreviewTrigger = null
+}
+
+function moveImagePreview(offset: number): void {
+  const image = imageGallery.value[previewImageIndex.value + offset]
+  if (image) imagePreviewUrl.value = image.url
+}
+
+function onImagePreviewKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Tab') {
+    const buttons = Array.from(imageViewer.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])
+    if (!buttons.length) return
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    event.preventDefault()
+    buttons[index < 0 ? (event.shiftKey ? buttons.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus()
+  } else if (['Escape', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.key === 'Escape') closeImagePreview()
+    else moveImagePreview(event.key === 'ArrowLeft' ? -1 : 1)
+  }
+}
+
 function clearPendingImages(): void {
   for (const image of pendingImages.value) URL.revokeObjectURL(image.url)
   pendingImages.value = []
@@ -1632,6 +1850,7 @@ async function sendAttachment(event: Event, kind: ImAttachment['kind']): Promise
   const receiver = active.value
   input.value = ''
   if (!file || !receiver || messageRestriction(receiver)) return
+  const reference = replyTo.value
   toolbarError.value = ''
   if (!props.uploadAttachment) {
     toolbarError.value = new LocaleError('uploadAttachmentRequired')
@@ -1644,9 +1863,11 @@ async function sendAttachment(event: Event, kind: ImAttachment['kind']): Promise
     const attachment = { kind, url, name: file.name }
     const timestamp = Date.now()
     const mid = createUuid()
-    getMessage({ id: receiver.id, type: receiver.type, content: file.name, attachment, timestamp, mid, mine: true, username: username.value, fromid: props.init.user.id })
+    const metadata = reference ? { replyTo: { ...reference } } : {}
+    getMessage({ id: receiver.id, type: receiver.type, content: file.name, ...metadata, attachment, timestamp, mid, mine: true, username: username.value, fromid: props.init.user.id })
+    if (replyTo.value === reference) replyTo.value = null
     if (receiver.type === 'ai') startAIReply(receiver)
-    emit('sendMessage', { user: currentUser.value, receiver, content: file.name, attachment, timestamp, mid })
+    emit('sendMessage', { user: currentUser.value, receiver, content: file.name, ...metadata, attachment, timestamp, mid })
   } catch {
     toolbarError.value = new LocaleError('uploadFailed')
   }
@@ -1675,6 +1896,7 @@ async function sendVoice(): Promise<void> {
   const upload = props.uploadVoice ?? props.uploadAttachment
   if (!upload) { toolbarError.value = new LocaleError('uploadVoiceRequired'); return }
   const duration = voiceDuration.value
+  const reference = replyTo.value
   const session = toolbarSession
   const isCurrent = () => !disposed && chatOpen.value && session === toolbarSession && voiceFile.value === file && !messageRestriction(receiver)
   voiceSending.value = true
@@ -1685,8 +1907,10 @@ async function sendVoice(): Promise<void> {
     const attachment: ImAttachment = { kind: 'audio', url, name: file.name, duration }
     const timestamp = Date.now()
     const mid = createUuid()
-    getMessage({ ...receiver, content: t('voiceContent'), attachment, timestamp, mid, fromid: currentUser.value.id, mine: true, username: username.value, avatar: userAvatar.value })
-    emit('sendMessage', { user: currentUser.value, receiver, content: t('voiceContent'), timestamp, attachment, mid })
+    const metadata = reference ? { replyTo: { ...reference } } : {}
+    getMessage({ ...receiver, content: t('voiceContent'), ...metadata, attachment, timestamp, mid, fromid: currentUser.value.id, mine: true, username: username.value, avatar: userAvatar.value })
+    if (replyTo.value === reference) replyTo.value = null
+    emit('sendMessage', { user: currentUser.value, receiver, content: t('voiceContent'), ...metadata, timestamp, attachment, mid })
     cancelVoice()
     voiceSending.value = false
   } catch {
@@ -1756,7 +1980,7 @@ function timeLabel(timestamp: number): string {
   return timeFormatter.value.format(timestamp)
 }
 
-defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMessage, getChatNotice, setMessageRead, setTyping, addContacts, addFriendGroup, moveFriend, removeFriend, deleteFriend, blockFriend, unblockFriend, setFriendBlocked, setBlockedUsers, getBlockedUsers, removeGroup, setGroupMute, setGroupAdmin, getNotice, setFriendStatus, setChatStatus, setToolbar, open, close, resetWindows, setLocale })
+defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMessage, getChatNotice, setMessageRead, setTyping, addContacts, addFriendGroup, moveFriend, removeFriend, deleteFriend, blockFriend, unblockFriend, setFriendBlocked, setBlockedUsers, getBlockedUsers, removeGroup, setGroupMute, setGroupNotificationsMuted, setGroupAdmin, getNotice, setFriendStatus, setChatStatus, setToolbar, open, close, resetWindows, setLocale })
 </script>
 
 <template>
@@ -1837,17 +2061,25 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
             <p v-if="!visibleGroups.some(group => group.list.length)" class="gim-empty">{{ t('noContacts') }}</p>
           </template>
           <template v-else-if="tab === 'group'">
-            <button v-for="contact in visibleChats" :key="contact.id" class="gim-contact" type="button" @click="chat(contact)">
-              <span class="gim-avatar gim-group-avatar"><img v-if="contact.avatar" :src="contact.avatar" :alt="displayName(contact)" /><span v-else>{{ avatarLetter(contact) }}</span></span>
-              <span class="gim-contact-copy"><strong>{{ displayName(contact) }}</strong><small>{{ contact.members !== undefined ? t('memberCount', { count: contact.members }) : t('groupChat') }}</small></span>
-              <span v-if="unread[`group:${contact.id}`]" class="gim-unread">{{ unread[`group:${contact.id}`] }}</span>
-            </button>
+            <div v-for="contact in visibleChats" :key="contact.id" class="gim-contact-row gim-group-row" :class="{ 'gim-actions-open': groupActionsId === String(contact.id), 'gim-swiping': groupSwipe?.id === String(contact.id) }">
+              <div class="gim-group-actions" :inert="groupActionsId !== String(contact.id)">
+                <button type="button" :aria-label="isGroupNotificationsMuted(contact) ? t('unmuteNamedGroupNotifications', { name: displayName(contact) }) : t('muteNamedGroupNotifications', { name: displayName(contact) })" :disabled="groupNotificationBusy.has(String(contact.id))" @click="toggleGroupNotifications(contact)">{{ isGroupNotificationsMuted(contact) ? t('unmuteNotifications') : t('muteNotifications') }}</button>
+              </div>
+              <button class="gim-contact" type="button" :style="groupSwipe?.id === String(contact.id) ? { transform: `translateX(${groupSwipe.offset}px)` } : undefined" :draggable="false" :title="t('swipeGroupHint')" @contextmenu.prevent="groupActionsId = groupActionsId === String(contact.id) ? null : String(contact.id)" @keydown.shift.f10.prevent="groupActionsId = String(contact.id)" @keydown.esc="groupActionsId = null" @pointerdown="startGroupSwipe($event, contact)" @click="!groupSwipeClick && chat(contact)">
+                <span class="gim-avatar gim-group-avatar"><img v-if="contact.avatar" :src="contact.avatar" :alt="displayName(contact)" :draggable="false" /><span v-else>{{ avatarLetter(contact) }}</span></span>
+                <span class="gim-contact-copy"><strong>{{ displayName(contact) }}</strong><small>{{ contact.members !== undefined ? t('memberCount', { count: contact.members }) : t('groupChat') }}</small></span>
+                <span v-if="isGroupNotificationsMuted(contact)" class="gim-group-notifications-muted" role="img" :aria-label="t('groupNotificationsMuted')" :title="t('groupNotificationsMuted')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 4.2A6 6 0 0 1 18 10v2M6 6.5A6 6 0 0 0 6 10c0 5-3 5-3 7h14M10 21h4" /></svg></span>
+                <span v-if="unread[`group:${contact.id}`]" class="gim-unread">{{ unread[`group:${contact.id}`] }}</span>
+              </button>
+            </div>
+            <p v-if="groupNotificationError" class="gim-form-error" role="alert">{{ errorText(groupNotificationError) }}</p>
             <p v-if="!visibleChats.length" class="gim-empty">{{ t('noGroups') }}</p>
           </template>
           <template v-else>
             <button v-for="key in visibleRecent" :key="key" class="gim-contact" :class="{ 'gim-blocked-contact': isBlockedContact(conversations[key]) }" type="button" @click="chat(conversations[key])">
               <span class="gim-avatar" :class="{ 'gim-group-avatar': conversations[key].type === 'group', 'gim-offline': isOffline(conversations[key]), 'gim-blocked': isBlockedContact(conversations[key]) }"><img v-if="conversations[key].avatar || conversations[key].type !== 'group'" :src="conversations[key].avatar || (conversations[key].type === 'ai' ? aiAvatar : defaultAvatar)" :alt="displayName(conversations[key])" /><span v-else>{{ avatarLetter(conversations[key]) }}</span></span>
               <span class="gim-contact-copy"><strong>{{ displayName(conversations[key]) }}<span v-if="isBlockedContact(conversations[key])" class="gim-blocked-label">{{ t('blockedUser') }}</span></strong><small>{{ messages[key]?.filter(message => !message.notice).at(-1)?.content || (conversations[key].type === 'group' ? t('groupChat') : t('startChat')) }}</small></span>
+              <span v-if="isGroupNotificationsMuted(conversations[key])" class="gim-group-notifications-muted" role="img" :aria-label="t('groupNotificationsMuted')" :title="t('groupNotificationsMuted')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 4.2A6 6 0 0 1 18 10v2M6 6.5A6 6 0 0 0 6 10c0 5-3 5-3 7h14M10 21h4" /></svg></span>
               <span v-if="unread[key]" class="gim-unread">{{ unread[key] }}</span>
             </button>
             <p v-if="!visibleRecent.length" class="gim-empty">{{ t('noRecentChats') }}</p>
@@ -1869,6 +2101,7 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
               <button type="button" :aria-label="t('switchConversation', { name: displayName(conversations[key]) })" @click="chat(conversations[key])">
                 <span class="gim-avatar" :class="{ 'gim-group-avatar': conversations[key].type === 'group', 'gim-offline': isOffline(conversations[key]), 'gim-blocked': isBlockedContact(conversations[key]) }"><img v-if="conversations[key].avatar || conversations[key].type !== 'group'" :src="conversations[key].avatar || (conversations[key].type === 'ai' ? aiAvatar : defaultAvatar)" :alt="displayName(conversations[key])" /><span v-else>{{ avatarLetter(conversations[key]) }}</span></span>
                 <span class="gim-conversation-name">{{ displayName(conversations[key]) }}<small v-if="isBlockedContact(conversations[key])" class="gim-blocked-label">{{ t('blockedUser') }}</small></span>
+                <span v-if="isGroupNotificationsMuted(conversations[key])" class="gim-group-notifications-muted" role="img" :aria-label="t('groupNotificationsMuted')" :title="t('groupNotificationsMuted')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 4.2A6 6 0 0 1 18 10v2M6 6.5A6 6 0 0 0 6 10c0 5-3 5-3 7h14M10 21h4" /></svg></span>
                 <i v-if="unread[key]" class="gim-tab-dot" />
               </button>
               <button class="gim-conversation-close" type="button" :aria-label="t('closeConversation', { name: displayName(conversations[key]) })" @click="closeChat(key)">×</button>
@@ -1892,15 +2125,17 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
               <div class="gim-message-body">
                 <div class="gim-message-meta"><span>{{ message.mine ? username : message.username || displayName(active) }}</span><span v-if="isBlockedMessage(message)" class="gim-blocked-label">{{ t('blockedUser') }}</span><template v-if="active.type === 'group' && (message.fromid !== undefined || message.mine)"><span v-if="isGroupOwner({ ...active, type: 'group' }, message.mine ? init.user.id : message.fromid)" class="gim-owner-badge">{{ t('owner') }}</span><span v-else-if="isGroupAdmin({ ...active, type: 'group' }, message.mine ? init.user.id : message.fromid)" class="gim-admin-badge">{{ t('administrator') }}</span></template><time>{{ timeLabel(message.timestamp) }}</time></div>
                 <div class="gim-bubble">
-                  <template v-if="message.attachments?.length"><div class="gim-message-images"><template v-for="image in message.attachments" :key="image.url"><img v-if="image.kind === 'image' && safeAttachmentUrl(image.url)" class="gim-message-image" :src="image.url" :alt="image.name" /></template></div><span v-if="message.content && message.content !== message.attachments[0]?.name" class="gim-message-caption">{{ message.content }}</span></template>
-                  <template v-else-if="message.attachment?.kind === 'image' && safeAttachmentUrl(message.attachment.url)"><img class="gim-message-image" :src="message.attachment.url" :alt="message.attachment.name" /><span v-if="message.content && message.content !== message.attachment.name" class="gim-message-caption">{{ message.content }}</span></template>
+                  <blockquote v-if="message.replyTo" class="gim-message-quote"><strong>{{ message.replyTo.username }}</strong><div v-if="quoteImages(message.replyTo).length" class="gim-quote-images"><template v-for="image in quoteImages(message.replyTo)" :key="image.url"><button v-if="safeAttachmentUrl(image.url)" type="button" class="gim-image-button" :aria-label="t('previewImage')" @click="openImagePreview(image, $event)"><img class="gim-quote-image" :src="image.url" :alt="image.name" /></button></template></div><span v-if="quoteText(message.replyTo)">{{ quoteText(message.replyTo) }}</span></blockquote>
+                  <template v-if="message.attachments?.length"><div class="gim-message-images"><template v-for="image in message.attachments" :key="image.url"><button v-if="image.kind === 'image' && safeAttachmentUrl(image.url)" type="button" class="gim-image-button" :aria-label="t('previewImage')" @click="openImagePreview(image, $event)"><img class="gim-message-image" :src="image.url" :alt="image.name" /></button></template></div><span v-if="message.content && message.content !== message.attachments[0]?.name" class="gim-message-caption"><template v-for="(part, partIndex) in messageParts(message)" :key="partIndex"><span v-if="part.mention" class="gim-mention" :class="{ 'gim-mention-me': String(part.mention.id) === String(init.user.id) }">{{ part.text }}</span><template v-else>{{ part.text }}</template></template></span></template>
+                  <template v-else-if="message.attachment?.kind === 'image' && safeAttachmentUrl(message.attachment.url)"><button type="button" class="gim-image-button" :aria-label="t('previewImage')" @click="openImagePreview(message.attachment, $event)"><img class="gim-message-image" :src="message.attachment.url" :alt="message.attachment.name" /></button><span v-if="message.content && message.content !== message.attachment.name" class="gim-message-caption"><template v-for="(part, partIndex) in messageParts(message)" :key="partIndex"><span v-if="part.mention" class="gim-mention" :class="{ 'gim-mention-me': String(part.mention.id) === String(init.user.id) }">{{ part.text }}</span><template v-else>{{ part.text }}</template></template></span></template>
                   <div v-else-if="message.attachment?.kind === 'audio' && safeAttachmentUrl(message.attachment.url)" class="gim-voice-message"><audio controls preload="none" :src="message.attachment.url" :aria-label="t('playVoice')" /><small v-if="message.attachment.duration">{{ t('durationSeconds', { count: message.attachment.duration }) }}</small></div>
                   <a v-else-if="message.attachment?.kind === 'file' && safeAttachmentUrl(message.attachment.url)" :href="message.attachment.url" target="_blank" rel="noopener noreferrer" download>{{ message.attachment.name }} ↗</a>
                   <div v-else-if="active.type === 'ai' && !message.mine && message.content" class="gim-markdown" v-html="markdown.render(message.content)" />
-                  <template v-else>{{ message.content }}</template>
+                  <template v-else><template v-for="(part, partIndex) in messageParts(message)" :key="partIndex"><span v-if="part.mention" class="gim-mention" :class="{ 'gim-mention-me': String(part.mention.id) === String(init.user.id) }">{{ part.text }}</span><template v-else>{{ part.text }}</template></template></template>
                   <span v-if="message.pending" class="gim-ai-progress" role="status"><span class="gim-ai-dots" aria-hidden="true">● ● ●</span>{{ message.content ? t('generating') : t('thinking') }}</span>
                   <span v-if="message.error || message.errorKey" class="gim-ai-error" role="alert">{{ message.errorKey ? t(message.errorKey) : message.error }}</span>
                 </div>
+                <button v-if="active.type !== 'ai' && message.mid !== undefined && (message.mine || message.fromid !== undefined || active.type === 'friend')" type="button" class="gim-quote-action" :aria-label="t('quoteMessage')" :disabled="!!composerRestriction || imageSending || voiceSending" @click="quoteMessage(message)">{{ t('quoteMessage') }}</button>
                 <small v-if="message.mine && active.type !== 'ai'" class="gim-read-state" :class="{ 'is-read': message.readBy?.length }">{{ message.readBy?.length ? active.type === 'group' ? t('messageReadCount', { count: message.readBy.length }) : t('messageRead') : t('messageUnread') }}</small>
               </div>
             </div>
@@ -1920,6 +2155,7 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
               <div v-if="emojiOpen && !composerRestriction" class="gim-emoji-picker"><button v-for="emoji in emojis" :key="emoji" type="button" :aria-label="t('insertEmoji', { emoji })" @click="insertEmoji(emoji)">{{ emoji }}</button></div>
             </div>
             <p v-if="toolbarError" class="gim-toolbar-error" role="alert">{{ errorText(toolbarError) }}</p>
+            <div v-if="replyTo" class="gim-reply-preview"><div><strong>{{ t('replyingTo', { name: replyTo.username }) }}</strong><div v-if="quoteImages(replyTo).length" class="gim-quote-images"><template v-for="image in quoteImages(replyTo)" :key="image.url"><button v-if="safeAttachmentUrl(image.url)" type="button" class="gim-image-button" :aria-label="t('previewImage')" @click="openImagePreview(image, $event)"><img class="gim-quote-image" :src="image.url" :alt="image.name" /></button></template></div><span v-if="quoteText(replyTo)">{{ quoteText(replyTo) }}</span></div><button type="button" :aria-label="t('cancelReply')" :disabled="imageSending || voiceSending" @click="replyTo = null">×</button></div>
             <div v-if="voiceState !== 'idle'" class="gim-voice-recorder">
               <span v-if="voiceState === 'requesting'" role="status">{{ t('requestingMicrophone') }}</span>
               <template v-else-if="voiceState === 'recording'"><span class="gim-recording-dot" aria-hidden="true" /><span role="status">{{ t('recordingProgress', { count: voiceDuration }) }}</span><button type="button" :aria-label="t('stopRecording')" @click="stopVoice">{{ t('stop') }}</button></template>
@@ -1928,7 +2164,12 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
             </div>
             <div v-else class="gim-composer-input">
               <div v-if="pendingImages.length" class="gim-image-previews"><div v-for="(image, index) in pendingImages" :key="image.url" class="gim-image-preview"><img :src="image.url" :alt="image.file.name" /><button type="button" :aria-label="t('removeImage')" :disabled="imageSending" @click="removePendingImage(index)">×</button></div></div>
-              <textarea v-model="draft" :aria-label="t('messageInput')" :disabled="!!composerRestriction || imageSending" :placeholder="composerRestriction || (sendKey === 'enter' ? t('messagePlaceholder') : t('ctrlMessagePlaceholder'))" rows="3" @input="publishTyping" @keydown="onComposerKeydown" @paste="onComposerImage" @blur="stopTyping" />
+              <div v-if="mentionQuery && !composerRestriction && !imageSending" class="gim-mention-picker" :aria-label="t('mentionMember')">
+                <p v-if="groupMembersBusy[activeKey || '']" role="status">{{ t('loadingMembers') }}</p>
+                <button v-else-if="groupMembersError[activeKey || '']" type="button" class="gim-history-error" @mousedown.prevent @click="fetchGroupMembers(active)">{{ t('membersLoadFailed') }}</button>
+                <template v-else><button v-for="(member, memberIndex) in mentionCandidates" :key="member.id" type="button" class="gim-mention-option" :class="{ active: mentionIndex === memberIndex }" :aria-pressed="mentionIndex === memberIndex" @mousedown.prevent @click="selectMention(member)"><strong>{{ displayName(member) }}</strong><small>{{ t('contactId', { id: member.id }) }}</small></button><p v-if="!mentionCandidates.length">{{ !loadGroupMembers && !groupMembers[activeKey || ''] ? t('membersUnavailable') : t('noMentionMembers') }}</p></template>
+              </div>
+              <textarea ref="composerInput" v-model="draft" :aria-label="t('messageInput')" :disabled="!!composerRestriction || imageSending" :placeholder="composerRestriction || (sendKey === 'enter' ? t('messagePlaceholder') : t('ctrlMessagePlaceholder'))" rows="3" @input="publishTyping(); updateMentionQuery($event)" @click="updateMentionQuery" @keyup="!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes($event.key) && updateMentionQuery($event)" @keydown="onComposerKeydown" @paste="onComposerImage" @blur="stopTyping(); mentionQuery = null" />
             </div>
             <div class="gim-composer-footer"><span>{{ composerRestriction || (voiceState !== 'idle' ? voiceState === 'preview' ? t('voicePreviewHint', { count: voiceDuration }) : t('stopToPreview') : sendKey === 'enter' ? t('newLineHint') : t('ctrlSend')) }}</span><button v-if="voiceState !== 'idle'" type="button" :aria-label="t('sendVoice')" :disabled="voiceState !== 'preview' || voiceSending || !!composerRestriction" @click="sendVoice">{{ voiceSending ? t('uploading') : t('send') }} <span>↗</span></button><button v-else type="button" :disabled="(!draft.trim() && !pendingImages.length) || !!composerRestriction || imageSending" @click="send">{{ imageSending ? t('uploading') : t('send') }} <span>↗</span></button></div>
           </div>
@@ -2050,8 +2291,14 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
               <p v-if="!groupMembers[managedGroupKey]?.length" class="gim-empty">{{ t('noMembers') }}</p>
             </template>
           </div>
-          <div v-else class="gim-modal-list"><div v-for="(message, index) in activeMessages" :key="message.mid || index" class="gim-history-row" :class="{ 'gim-blocked': isBlockedMessage(message) }"><strong>{{ message.mine ? username : message.username || (active && displayName(active)) }}</strong><span v-if="isBlockedMessage(message)" class="gim-blocked-label">{{ t('blockedUser') }}</span><time>{{ timeLabel(message.timestamp) }}</time><p>{{ message.notice ? chatNoticeText(message) : message.content }}</p></div><p v-if="!activeMessages.length" class="gim-empty">{{ t('noHistory') }}</p></div>
+          <div v-else class="gim-modal-list"><div v-for="(message, index) in activeMessages" :key="message.mid || index" class="gim-history-row" :class="{ 'gim-blocked': isBlockedMessage(message) }"><strong>{{ message.mine ? username : message.username || (active && displayName(active)) }}</strong><span v-if="isBlockedMessage(message)" class="gim-blocked-label">{{ t('blockedUser') }}</span><time>{{ timeLabel(message.timestamp) }}</time><blockquote v-if="message.replyTo" class="gim-message-quote"><strong>{{ message.replyTo.username }}</strong><div v-if="quoteImages(message.replyTo).length" class="gim-quote-images"><template v-for="image in quoteImages(message.replyTo)" :key="image.url"><button v-if="safeAttachmentUrl(image.url)" type="button" class="gim-image-button" :aria-label="t('previewImage')" @click="openImagePreview(image, $event)"><img class="gim-quote-image" :src="image.url" :alt="image.name" /></button></template></div><span v-if="quoteText(message.replyTo)">{{ quoteText(message.replyTo) }}</span></blockquote><p>{{ message.notice ? chatNoticeText(message) : message.content }}</p></div><p v-if="!activeMessages.length" class="gim-empty">{{ t('noHistory') }}</p></div>
         </section>
+      </div>
+      <div v-if="previewImage" ref="imageViewer" class="gim-image-viewer" role="dialog" aria-modal="true" :aria-label="t('previewImage')" tabindex="-1" @keydown="onImagePreviewKeydown" @click.self="closeImagePreview">
+        <button type="button" class="gim-image-close" :aria-label="t('closeImagePreview')" @click="closeImagePreview">×</button>
+        <button v-if="imageGallery.length > 1" type="button" class="gim-image-previous" :aria-label="t('previousImage')" :disabled="previewImageIndex === 0" @click="moveImagePreview(-1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6 9 12 15 18" /></svg></button>
+        <figure><img class="gim-preview-image" :src="previewImage.url" :alt="previewImage.name" /><figcaption><span>{{ previewImage.name }}</span><span class="gim-image-counter" aria-live="polite">{{ previewImageIndex + 1 }} / {{ imageGallery.length }}</span></figcaption></figure>
+        <button v-if="imageGallery.length > 1" type="button" class="gim-image-next" :aria-label="t('nextImage')" :disabled="previewImageIndex === imageGallery.length - 1" @click="moveImagePreview(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6 15 12 9 18" /></svg></button>
       </div>
   </div>
 </template>

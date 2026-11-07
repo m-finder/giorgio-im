@@ -124,6 +124,8 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
       id: payload.receiver.id, type: payload.receiver.type, mid: payload.mid,
       content: payload.content, ...(payload.attachment ? { attachment: payload.attachment } : {}),
       ...(payload.attachments ? { attachments: payload.attachments } : {}),
+      ...(payload.mentions?.length ? { mentions: payload.mentions } : {}),
+      ...(payload.replyTo ? { replyTo: { mid: payload.replyTo.mid, fromid: payload.replyTo.fromid } } : {}),
     })
   }
   function queueRead(payload: ImReadPayload): void {
@@ -184,6 +186,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
     dismissGroup: async group => { await request(groupPath(group), 'DELETE') },
     muteGroupMember: async (group, member, muted) => { await request(`${memberPath(group, member)}/mute`, 'PATCH', { muted }) },
     muteGroup: async (group, muted) => { await request(`${groupPath(group)}/mute`, 'PATCH', { muted }) },
+    muteGroupNotifications: async (group, muted) => { await request(`${groupPath(group)}/notifications`, 'PATCH', { muted }) },
     setGroupAdmin: async (group, member, admin) => { await request(`${memberPath(group, member)}/admin`, 'PATCH', { admin }) },
     renameGroup: async (group, groupname) => { await request(groupPath(group), 'PATCH', { groupname }) },
     uploadGroupAvatar: async (file, group) => {
