@@ -52,11 +52,12 @@ const props = withDefaults(defineProps<{
   notices?: ImNotice[]
   messageNotification?: ImOptions['messageNotification']
   messageSound?: ImOptions['messageSound']
+  messageQuote?: ImOptions['messageQuote']
   chatNotices?: ImOptions['chatNotices']
   chatTimeout?: number
   enableLocalStorage?: boolean
   encryptionKey?: string
-}>(), { messageNotification: true, messageSound: true })
+}>(), { messageNotification: true, messageSound: true, messageQuote: true })
 
 const { locale, t, setLocale, errorText, timeFormatter } = useImLocale(props)
 
@@ -376,6 +377,7 @@ watch([activeKey, composerRestriction], () => {
   draftMentions.value = []
   mentionQuery.value = null
 }, { flush: 'sync' })
+watch(() => props.messageQuote, enabled => { if (enabled === false) replyTo.value = null }, { flush: 'sync' })
 watch([activeKey, chatOpen, pageVisible, composerRestriction], stopTyping, { flush: 'sync' })
 watch(activeKey, () => {
   clearPendingImages()
@@ -1653,7 +1655,6 @@ async function send(): Promise<void> {
   const mentions = receiver.type === 'group' ? draftMentions.value
     .filter(mention => groupMembers[activeKey.value || '']?.some(member => String(member.id) === String(mention.id)))
     .map(mention => ({ ...mention, start: mention.start - offset, end: mention.end - offset })).sort((a, b) => a.start - b.start) : []
-  const metadata = { ...(mentions.length ? { mentions } : {}), ...(replyTo.value ? { replyTo: { ...replyTo.value } } : {}) }
   let attachment: ImAttachment | undefined
   let attachments: ImAttachment[] | undefined
   if (images.length) {
@@ -1680,6 +1681,7 @@ async function send(): Promise<void> {
   const messageContent = content || images[0]?.file.name || ''
   const timestamp = Date.now()
   const mid = createUuid()
+  const metadata = { ...(mentions.length ? { mentions } : {}), ...(props.messageQuote !== false && replyTo.value ? { replyTo: { ...replyTo.value } } : {}) }
   getMessage({ id: receiver.id, type: receiver.type, content: messageContent, ...metadata, ...(attachment ? { attachment } : {}), ...(attachments ? { attachments } : {}), mid, username: username.value, avatar: userAvatar.value, timestamp, fromid: props.init.user.id, mine: true })
   draft.value = ''
   replyTo.value = null
@@ -1715,7 +1717,7 @@ function selectMention(member: ImGroupMember): void {
 
 function quoteMessage(message: ViewMessage): void {
   const fromid = message.mine ? props.init.user.id : message.fromid ?? (message.type === 'friend' ? message.id : undefined)
-  if (message.type === 'ai' || message.notice || message.mid === undefined || fromid === undefined || composerRestriction.value || imageSending.value || voiceSending.value) return
+  if (props.messageQuote === false || message.type === 'ai' || message.notice || message.mid === undefined || fromid === undefined || composerRestriction.value || imageSending.value || voiceSending.value) return
   replyTo.value = { mid: message.mid, fromid, username: message.mine ? username.value : message.username || displayName(active.value!),
     content: message.content || message.attachment?.name || message.attachments?.map(image => image.name).join(', ') || '',
     ...(message.attachment ? { attachment: { ...message.attachment } } : {}),
@@ -1863,7 +1865,7 @@ async function sendAttachment(event: Event, kind: ImAttachment['kind']): Promise
     const attachment = { kind, url, name: file.name }
     const timestamp = Date.now()
     const mid = createUuid()
-    const metadata = reference ? { replyTo: { ...reference } } : {}
+    const metadata = props.messageQuote !== false && reference && replyTo.value === reference ? { replyTo: { ...reference } } : {}
     getMessage({ id: receiver.id, type: receiver.type, content: file.name, ...metadata, attachment, timestamp, mid, mine: true, username: username.value, fromid: props.init.user.id })
     if (replyTo.value === reference) replyTo.value = null
     if (receiver.type === 'ai') startAIReply(receiver)
@@ -1907,7 +1909,7 @@ async function sendVoice(): Promise<void> {
     const attachment: ImAttachment = { kind: 'audio', url, name: file.name, duration }
     const timestamp = Date.now()
     const mid = createUuid()
-    const metadata = reference ? { replyTo: { ...reference } } : {}
+    const metadata = props.messageQuote !== false && reference && replyTo.value === reference ? { replyTo: { ...reference } } : {}
     getMessage({ ...receiver, content: t('voiceContent'), ...metadata, attachment, timestamp, mid, fromid: currentUser.value.id, mine: true, username: username.value, avatar: userAvatar.value })
     if (replyTo.value === reference) replyTo.value = null
     emit('sendMessage', { user: currentUser.value, receiver, content: t('voiceContent'), ...metadata, timestamp, attachment, mid })
@@ -2135,7 +2137,7 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
                   <span v-if="message.pending" class="gim-ai-progress" role="status"><span class="gim-ai-dots" aria-hidden="true">● ● ●</span>{{ message.content ? t('generating') : t('thinking') }}</span>
                   <span v-if="message.error || message.errorKey" class="gim-ai-error" role="alert">{{ message.errorKey ? t(message.errorKey) : message.error }}</span>
                 </div>
-                <button v-if="active.type !== 'ai' && message.mid !== undefined && (message.mine || message.fromid !== undefined || active.type === 'friend')" type="button" class="gim-quote-action" :aria-label="t('quoteMessage')" :disabled="!!composerRestriction || imageSending || voiceSending" @click="quoteMessage(message)">{{ t('quoteMessage') }}</button>
+                <button v-if="messageQuote !== false && active.type !== 'ai' && message.mid !== undefined && (message.mine || message.fromid !== undefined || active.type === 'friend')" type="button" class="gim-quote-action" :aria-label="t('quoteMessage')" :disabled="!!composerRestriction || imageSending || voiceSending" @click="quoteMessage(message)">{{ t('quoteMessage') }}</button>
                 <small v-if="message.mine && active.type !== 'ai'" class="gim-read-state" :class="{ 'is-read': message.readBy?.length }">{{ message.readBy?.length ? active.type === 'group' ? t('messageReadCount', { count: message.readBy.length }) : t('messageRead') : t('messageUnread') }}</small>
               </div>
             </div>
