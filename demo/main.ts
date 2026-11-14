@@ -141,6 +141,8 @@ const im = createIM({
       im.getMessage({
         id: receiver.id,
         type: receiver.type,
+        mid: createUuid(),
+        fromid: receiver.type === 'group' ? 'xiaoyu' : receiver.id,
         username: receiver.type === 'group' ? t('小鱼', 'Xiaoyu') : receiver.username,
         content: t(`收到「${content}」。这是演示自动回复，实际项目请在这里发送到你的服务端。`, `Received “${content}”. This is a demo reply. In your app, send messages to your server here.`),
       })
@@ -149,7 +151,7 @@ const im = createIM({
   loadHistory(receiver) {
     if (receiver.type === 'ai') return [{ ...receiver, type: 'ai', content: t('你好，我是 **Giorgio AI**。\n\n可以向我提问，体验流式回复和 Markdown 展示。*当前为本地模拟演示。*', 'Hi, I’m **Giorgio AI**.\n\nAsk me a question to try streaming replies and Markdown. *This is a local demo.*'), mid: `welcome:${receiver.id}` }]
     if (receiver.id !== 'xiaoyu') return []
-    return [{ id: 'xiaoyu', type: 'friend', username: t('小鱼', 'Xiaoyu'), content: t('嗨！欢迎体验 Giorgio IM 👋', 'Hi! Welcome to Giorgio IM 👋'), timestamp: Date.now() - 120000 }]
+    return [{ id: 'xiaoyu', type: 'friend', mid: 'welcome:xiaoyu', fromid: 'xiaoyu', username: t('小鱼', 'Xiaoyu'), content: t('嗨！欢迎体验 Giorgio IM 👋', 'Hi! Welcome to Giorgio IM 👋'), timestamp: Date.now() - 120000 }]
   },
   loadGroupMembers(receiver) {
     return demoGroupMembers[String(receiver.id)] || []

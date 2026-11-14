@@ -329,6 +329,8 @@ export interface ImOptions {
   messageNotification?: boolean
   /** Incoming-message sound: true for the bundled synthesised tone, a URL for custom audio, false to mute. Defaults to true; AI replies stay silent. */
   messageSound?: boolean | string
+  /** Allow quoting messages from any sender in private and group chats. Defaults to true. */
+  messageQuote?: boolean
   /** Quiet timeline notices. Both presence and signature changes default to true. */
   chatNotices?: { presence?: boolean; signature?: boolean }
   /** AI inactivity timeout in milliseconds. Defaults to 60000. */

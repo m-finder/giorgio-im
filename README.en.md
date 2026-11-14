@@ -245,7 +245,9 @@ Messages with multiple images and text use `attachments: ImAttachment[]`; single
 
 Type `@` in a group chat to search and select members with the arrow keys and Enter. Supply members through `loadGroupMembers` or `im.setGroupMembers(id, members)`. Messages and send callbacks use `mentions: { id, username, start, end }[]`; `start` and `end` are UTF-16 indices into the content, with an exclusive end.
 
-Private and group chats support “Quote message” beside each message, with cancellation before sending. `replyTo` contains the original message's `{ mid, fromid, username, content }`, plus `attachment` or `attachments` for images. Previews, messages and history show image thumbnails with their caption; incoming and historical messages use the same shape. `createConnectedIM()` submits only `mid` and `fromid` from the reference. The server checks the conversation and supplies the name and content snapshot. Run `php artisan migrate` after upgrading the companion backend.
+Private and group chats support quoting your own messages and other participants' messages, with cancellation before sending. Incoming and historical messages must include their original `mid`; group messages also need the sender's `fromid`. `messageQuote` defaults to `true`. Set `createIM({ init, messageQuote: false })` to hide quoting actions and cancel an unsent quote; existing references remain visible.
+
+`replyTo` contains the original message's `{ mid, fromid, username, content }`, plus `attachment` or `attachments` for images. Previews, messages and history show image thumbnails with their caption; incoming and historical messages use the same shape. `createConnectedIM()` submits only `mid` and `fromid` from the reference. The server checks the conversation and supplies the name and content snapshot. Run `php artisan migrate` after upgrading the companion backend.
 
 Use the same `mid` for cumulative AI streaming updates:
 

@@ -63,6 +63,69 @@ it.each([group, friend])('quotes messages in a $type chat, cancels a quote and r
   expect(wrapper.find('.gim-reply-preview').exists()).toBe(false)
 })
 
+it.each([group, friend])('allows quoting every sender in a $type chat by default', async receiver => {
+  const { wrapper, api } = await setup()
+  api.chat(receiver)
+  for (const sender of [members[0], members[1], ...(receiver.type === 'group' ? [members[2]] : [])]) {
+    api.getMessage({ ...receiver, mid: sender.id, fromid: sender.id, username: sender.username, content: `${sender.username}'s message` })
+  }
+  await nextTick()
+  const messages = wrapper.findAll('.gim-message')
+  for (const [index, message] of messages.entries()) {
+    await message.get('[aria-label="引用消息"]').trigger('click')
+    await wrapper.get('textarea').setValue('Reply')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('sendMessage')?.[index]?.[0]).toMatchObject({ replyTo: { mid: members[index].id, fromid: members[index].id, username: members[index].username } })
+  }
+})
+
+it.each([group, friend])('disables new quotes in a $type chat without hiding received quotes', async receiver => {
+  const { wrapper, api } = await setup({ messageQuote: false })
+  api.chat(receiver)
+  api.getMessage({ ...receiver, mid: 'received', fromid: 'alice', content: 'Reply',
+    replyTo: { mid: 'original', fromid: 'me', username: 'Me', content: 'Original' } })
+  api.getMessage({ ...receiver, mid: 'mine', fromid: 'me', content: 'My message' })
+  await nextTick()
+  expect(wrapper.find('[aria-label="引用消息"]').exists()).toBe(false)
+  expect(wrapper.get('.gim-message-quote').text()).toContain('Original')
+  await wrapper.get('textarea').setValue('Unquoted')
+  await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
+  expect(wrapper.emitted('sendMessage')?.[0]?.[0]).not.toHaveProperty('replyTo')
+})
+
+it('clears a selected quote when quoting is disabled and supports enabling it again', async () => {
+  const { wrapper, api } = await setup()
+  api.getMessage({ ...group, mid: 'original', fromid: 'alice', username: 'Alice', content: 'Original' })
+  await nextTick()
+  await wrapper.get('[aria-label="引用消息"]').trigger('click')
+  await wrapper.setProps({ messageQuote: false })
+  expect(wrapper.find('.gim-reply-preview').exists()).toBe(false)
+  await wrapper.get('textarea').setValue('Unquoted')
+  await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
+  expect(wrapper.emitted('sendMessage')?.[0]?.[0]).not.toHaveProperty('replyTo')
+  await wrapper.setProps({ messageQuote: true })
+  await wrapper.findAll('[aria-label="引用消息"]')[0].trigger('click')
+  expect(wrapper.get('.gim-reply-preview').text()).toContain('Original')
+})
+
+it.each(['image', 'file'] as const)('drops a quote disabled while a %s upload is pending', async kind => {
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = () => 'blob:image'; static revokeObjectURL = vi.fn() })
+  let finishUpload!: (url: string) => void
+  const { wrapper, api } = await setup({ uploadAttachment: () => new Promise(resolve => { finishUpload = resolve }) })
+  api.getMessage({ ...group, mid: 'original', fromid: 'alice', username: 'Alice', content: 'Original' })
+  await nextTick()
+  await wrapper.get('[aria-label="引用消息"]').trigger('click')
+  const input = wrapper.get(kind === 'image' ? 'input[type="file"][accept="image/*"]' : 'input[type="file"]:not([accept])')
+  Object.defineProperty(input.element, 'files', { value: [new File(['upload'], kind === 'image' ? 'photo.png' : 'note.txt', { type: kind === 'image' ? 'image/png' : 'text/plain' })] })
+  await input.trigger('change')
+  if (kind === 'image') await wrapper.get('.gim-composer-footer button').trigger('click')
+  await wrapper.setProps({ messageQuote: false })
+  finishUpload(`https://example.test/${kind}`)
+  await flushPromises()
+  expect(wrapper.emitted('sendMessage')?.[0]?.[0]).toHaveProperty('attachment.kind', kind)
+  expect(wrapper.emitted('sendMessage')?.[0]?.[0]).not.toHaveProperty('replyTo')
+})
+
 it('orders multiple mentions by their positions when a second one is inserted before the first', async () => {
   const { wrapper } = await setup()
   const input = wrapper.get<HTMLTextAreaElement>('textarea')

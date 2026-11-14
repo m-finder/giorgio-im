@@ -251,7 +251,9 @@ im.getMessage({
 
 群聊输入 `@` 可搜索并选择成员，支持方向键和 Enter；通过 `loadGroupMembers` 加载成员，或调用 `im.setGroupMembers(id, members)` 提供成员列表。消息和发送回调中的 `mentions` 为 `{ id, username, start, end }[]`，其中 `start`、`end` 是正文的 UTF-16 索引，结束位置不包含在内。
 
-私聊和群聊均可点击消息旁的“引用消息”，发送前可取消。`replyTo` 包含原消息的 `{ mid, fromid, username, content }`，图片引用同时保留 `attachment` 或 `attachments`，在预览、消息和历史记录中显示缩略图及文字；接收消息和历史消息可携带同一结构。`createConnectedIM()` 发送时仅提交 `mid`、`fromid`，服务端校验同一会话并生成名称和正文快照。使用配套后端时，升级后先运行 `php artisan migrate`。
+私聊和群聊均可引用自己或他人的消息，发送前可取消。接收消息和历史消息需提供原消息的 `mid`，群聊还需提供发送者 `fromid`。`messageQuote` 默认 `true`；设置 `createIM({ init, messageQuote: false })` 可关闭引用入口并取消尚未发送的引用，已有引用内容仍会显示。
+
+`replyTo` 包含原消息的 `{ mid, fromid, username, content }`，图片引用同时保留 `attachment` 或 `attachments`，在预览、消息和历史记录中显示缩略图及文字；接收消息和历史消息可携带同一结构。`createConnectedIM()` 发送时仅提交 `mid`、`fromid`，服务端校验同一会话并生成名称和正文快照。使用配套后端时，升级后先运行 `php artisan migrate`。
 
 AI 流式消息使用同一个 `mid`，每次传入完整内容：
 

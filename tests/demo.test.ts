@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ImOptions } from '../src'
 
 const { createIM, im } = vi.hoisted(() => {
-  const im = { open: vi.fn(), chat: vi.fn(), resetWindows: vi.fn() }
+  const im = { open: vi.fn(), chat: vi.fn(), resetWindows: vi.fn(), getMessage: vi.fn() }
   return { createIM: vi.fn((_options: ImOptions) => im), im }
 })
 
@@ -13,6 +13,40 @@ beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = '<div id="app"></div>'
   history.replaceState(null, '', '/')
+})
+
+afterEach(() => vi.useRealTimers())
+
+describe('demo message identities', () => {
+  it.each([
+    { id: 'xiaoyu', type: 'friend' as const, username: '小鱼' },
+    { id: 'design', type: 'group' as const, groupname: '设计灵感交流' },
+  ])('gives received $type messages their own identity for quoting', async receiver => {
+    vi.useFakeTimers()
+    await import('../demo/main')
+    const options = createIM.mock.calls[0][0]
+    options.onSendMessage!({ user: options.init.user, receiver, content: 'Hello', mid: 'sent-message', timestamp: Date.now() })
+    options.onSendMessage!({ user: options.init.user, receiver, content: 'Again', mid: 'another-message', timestamp: Date.now() })
+    await vi.advanceTimersByTimeAsync(800)
+    const messages = im.getMessage.mock.calls.map(call => call[0])
+    expect(messages).toEqual([
+      expect.objectContaining({ id: receiver.id, type: receiver.type, mid: expect.any(String), fromid: 'xiaoyu' }),
+      expect.objectContaining({ id: receiver.id, type: receiver.type, mid: expect.any(String), fromid: 'xiaoyu' }),
+    ])
+    expect(messages[0].mid).not.toBe(messages[1].mid)
+  })
+
+  it('keeps the welcome message identity stable across history loads', async () => {
+    await import('../demo/main')
+    const options = createIM.mock.calls[0][0]
+    const receiver = { id: 'xiaoyu', type: 'friend' as const, username: '小鱼' }
+    const first = await options.loadHistory!(receiver)
+    const second = await options.loadHistory!(receiver)
+    expect({ first: first[0], second: second[0] }).toMatchObject({
+      first: { mid: 'welcome:xiaoyu', fromid: 'xiaoyu' },
+      second: { mid: 'welcome:xiaoyu', fromid: 'xiaoyu' },
+    })
+  })
 })
 
 describe('demo navigation', () => {
