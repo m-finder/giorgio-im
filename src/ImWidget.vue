@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ensureStyles } from './style'
+import { backgrounds, isSkin, readBackground, resolveBackground, skins } from './appearance'
 import { createLocalBackup, type LocalBackup } from './storage'
 import { useVoiceRecorder } from './voice'
+import { createVoiceCall, type VoiceCallState } from './call'
+import { createGroupCall } from './group-call'
 import { useMessageSound } from './notifications'
 import { createUuid } from './uuid'
 import { editMentions, messageParts, quoteImages, quoteText } from './message-content'
@@ -11,7 +14,7 @@ import type { ImLocaleKey } from './locales'
 import defaultAvatar from './assets/default-avatar.png'
 import aiAvatar from './assets/ai-avatar.svg'
 import MarkdownIt from 'markdown-it'
-import type { ImAttachment, ImCallType, ImChatNotice, ImChatType, ImContact, ImFriendGroup, ImGroupMember, ImId, ImInit, ImMention, ImMessage, ImMessageReference, ImNotice, ImOptions, ImReadPayload, ImReadReceipt, ImSendPayload, ImToolbarItem, ImToolbarState, ImTypingPayload, ImTypingState } from './types'
+import type { ImAttachment, ImCallSignal, ImCallType, ImChatNotice, ImChatType, ImContact, ImFriendGroup, ImGroupMember, ImId, ImInit, ImMention, ImMessage, ImMessageReference, ImNotice, ImOptions, ImReadPayload, ImReadReceipt, ImSendPayload, ImSkin, ImToolbarItem, ImToolbarState, ImTypingPayload, ImTypingState } from './types'
 
 type ChatContact = ImContact & { type: ImChatType }
 type GroupContact = ImContact & { type: 'group' }
@@ -20,6 +23,10 @@ type Utility = 'call-info' | 'delete-friend' | 'block-friend' | 'blocklist' | 'a
 
 const props = withDefaults(defineProps<{
   init: ImInit
+  panelWidth?: ImOptions['panelWidth']
+  panelHeight?: ImOptions['panelHeight']
+  skin?: ImOptions['skin']
+  background?: ImOptions['background']
   locale?: ImOptions['locale']
   locales?: ImOptions['locales']
   customerService?: ImOptions['customerService']
@@ -47,6 +54,7 @@ const props = withDefaults(defineProps<{
   uploadAttachment?: (file: File, receiver: ChatContact) => Promise<string> | string
   uploadVoice?: ImOptions['uploadVoice']
   onCall?: ImOptions['onCall']
+  voiceCall?: ImOptions['voiceCall']
   toolbar?: ImToolbarItem[]
   uploadAvatar?: ImOptions['uploadAvatar']
   notices?: ImNotice[]
@@ -192,6 +200,20 @@ const addBusy = ref<string | null>(null)
 const requestedIds = ref<Set<string>>(new Set())
 const notices = ref<ImNotice[]>((props.notices || []).map(notice => ({ ...notice })))
 const theme = ref<'light' | 'dark'>('light')
+const skin = ref<ImSkin>(isSkin(props.skin) ? props.skin : 'blue')
+const background = ref(props.background && resolveBackground(props.background) ? props.background : 'none')
+const customBackground = ref('')
+const backgroundInput = ref<HTMLInputElement | null>(null)
+const backgroundBusy = ref(false)
+const appearanceError = ref<string | Error>('')
+let backgroundRequest = 0
+const backgroundImage = computed(() => resolveBackground(background.value === 'custom' ? customBackground.value : background.value))
+const widgetStyle = computed(() => ({
+  '--gim-panel-width': `${props.panelWidth && Number.isFinite(props.panelWidth) && props.panelWidth > 0 ? props.panelWidth : 316}px`,
+  '--gim-panel-height': `${props.panelHeight && Number.isFinite(props.panelHeight) && props.panelHeight > 0 ? props.panelHeight : 630}px`,
+  '--gim-blue': skins.find(item => item.id === skin.value)?.color || '#426dff',
+  '--gim-wallpaper': backgroundImage.value ? `url(${JSON.stringify(backgroundImage.value)})` : 'none',
+}))
 const sendKey = ref<'enter' | 'ctrl-enter'>('enter')
 const emojiOpen = ref(false)
 const toolbarError = ref<string | Error>('')
@@ -199,6 +221,38 @@ const toolbarOverrides = ref<ImToolbarItem[] | null>(null)
 const toolbarBusy = reactive(new Set<string>())
 let toolbarSession = 0
 const callBusy = ref(false)
+const callState = ref<VoiceCallState & { groupId?: ImId; participants?: ImContact[] }>({ phase: 'idle', type: 'voice', muted: false, cameraOff: false, duration: 0, playbackBlocked: false })
+const voiceCall = createVoiceCall(() => props.voiceCall, value => { callState.value = value })
+const groupCall = createGroupCall(() => props.voiceCall, () => currentUser.value, value => { callState.value = value })
+const callController = computed(() => callState.value.groupId !== undefined ? groupCall : voiceCall)
+const callActive = computed(() => !['idle', 'ended'].includes(callState.value.phase))
+const callStatus = computed<ImLocaleKey>(() => callState.value.reason || ({ idle: 'voiceCall', incoming: callState.value.groupId !== undefined ? (callState.value.type === 'video' ? 'groupVideoCallIncoming' : 'groupVoiceCallIncoming') : (callState.value.type === 'video' ? 'videoCallIncoming' : 'callIncoming'), requesting: callState.value.type === 'video' ? 'requestingCamera' : 'requestingMicrophone', calling: 'callCalling', connecting: 'callConnecting', connected: 'callConnected', ended: 'callEnded' } as const)[callState.value.phase])
+const remoteCallParticipants = computed(() => (callState.value.participants || []).filter(member => String(member.id) !== String(props.init.user.id)))
+const groupVideoReferences = new Map<string, (element: unknown) => void>()
+function groupVideoReference(id: ImId): (element: unknown) => void {
+  const key = String(id)
+  if (!groupVideoReferences.has(key)) groupVideoReferences.set(key, element => { groupCall.setRemoteVideo(id, element instanceof HTMLVideoElement ? element : null) })
+  return groupVideoReferences.get(key)!
+}
+function receiveCallSignal(signal: ImCallSignal): void {
+  if (signal.groupId !== undefined) {
+    if (signal.action === 'invite' && callActive.value && callState.value.groupId === undefined) {
+      void Promise.resolve().then(() => props.voiceCall?.sendSignal({ callId: signal.callId, id: signal.groupId!, groupId: signal.groupId, action: 'reject' })).catch(() => {})
+      return
+    }
+    groupCall.receive(signal)
+    return
+  }
+  if (signal.action === 'offer' && (isBlocked(signal.id) || (callActive.value && callState.value.groupId !== undefined))) {
+    if (!isBlocked(signal.id)) void Promise.resolve().then(() => props.voiceCall?.sendSignal({ callId: signal.callId, id: signal.id, action: 'reject' })).catch(() => {})
+    return
+  }
+  voiceCall.receive(signal)
+}
+function acceptCall(): void { cancelVoice(); callController.value.accept() }
+function hangupCall(): void { callController.value.hangup() }
+function setLocalVideo(element: unknown): void { callController.value.setLocalVideo(element instanceof HTMLVideoElement ? element : null) }
+function setRemoteVideo(element: unknown): void { voiceCall.setRemoteVideo(element instanceof HTMLVideoElement ? element : null) }
 const voiceSending = ref(false)
 const { state: voiceState, duration: voiceDuration, preview: voicePreview, file: voiceFile, error: voiceError,
   start: startVoice, stop: stopVoice, cancel: cancelVoice } = useVoiceRecorder()
@@ -265,7 +319,8 @@ const toolbarItems = computed(() => {
     .map(item => ({ ...item, label: item.label || item.id, align: item.align || 'left', order: item.order ?? 100,
       disabled: (item.id !== 'history' && !!state.restriction) || toolbarBusy.has(`${activeKey.value}:${item.id}`)
         || (item.id !== 'history' && voiceState.value !== 'idle')
-        || (['voice-call', 'video-call'].includes(item.id) && callBusy.value)
+        || (['voice-call', 'video-call'].includes(item.id) && (callBusy.value || callActive.value))
+        || (item.id === 'voice' && callActive.value)
         || (typeof item.disabled === 'function' ? item.disabled(state) : !!item.disabled),
     }))
     .sort((a, b) => Number(a.align === 'right') - Number(b.align === 'right') || a.order - b.order)
@@ -391,6 +446,8 @@ watch([activeKey, toolbarOverrides, () => props.toolbar], () => {
 }, { deep: true, flush: 'sync' })
 watch([activeKey, chatOpen, composerRestriction], () => { cancelVoice(); voiceSending.value = false }, { flush: 'sync' })
 watch(voiceError, value => { if (value) toolbarError.value = value })
+watch(() => props.init.user.id, restoreSettings)
+watch(() => callState.value.contact && messageRestriction({ ...callState.value.contact, type: callState.value.groupId !== undefined ? 'group' : 'friend' }), restriction => { if (restriction && callActive.value) hangupCall() }, { flush: 'sync' })
 watch(messageAlertVersion, () => {
   messageAlertAnimation?.cancel()
   messageAlertAnimation = undefined
@@ -410,6 +467,8 @@ watch(() => [props.enableLocalStorage, props.encryptionKey, props.init.user.id],
   if (backupMounted) configureBackup(false)
 })
 onMounted(() => {
+  voiceCall.mount()
+  groupCall.mount()
   ensureStyles()
   backupMounted = true
   configureBackup(true)
@@ -419,14 +478,16 @@ onMounted(() => {
     if (contact.type === 'friend' && !friends.value.some(friend => String(friend.id) === String(contact.id))) removedFriendIds.value.add(String(contact.id))
   }
   window.addEventListener('pagehide', saveBackup)
+  window.addEventListener('pagehide', hangupCall)
   document.addEventListener('visibilitychange', updatePageVisibility)
-  try {
-    const saved = JSON.parse(localStorage.getItem(`giorgio-im-settings:${props.init.user.id}`) || '{}')
-    if (saved.theme === 'dark') theme.value = 'dark'
-    if (saved.sendKey === 'ctrl-enter') sendKey.value = 'ctrl-enter'
-  } catch { /* Storage may be unavailable. */ }
+  restoreSettings()
 })
 onUnmounted(() => {
+  backgroundRequest++
+  voiceCall.destroy()
+  groupCall.destroy()
+  groupVideoReferences.clear()
+  window.removeEventListener('pagehide', hangupCall)
   clearPendingImages()
   stopTyping()
   disposed = true
@@ -924,6 +985,7 @@ async function submitFriendAction(action: 'delete' | 'block' | 'unblock', contac
 }
 
 function removeGroup(id: ImId): void {
+  if (callActive.value && String(callState.value.groupId) === String(id)) groupCall.hangup()
   const key = keyOf('group', id)
   removedGroupIds.value.add(String(id))
   addedGroups.value = addedGroups.value.filter(group => String(group.id) !== String(id))
@@ -1453,10 +1515,63 @@ function actOnNotice(notice: ImNotice, action: 'accept' | 'reject' | 'read'): vo
   emit('noticeAction', notice, action)
 }
 
+function restoreSettings(): void {
+  resetAppearance(false)
+  sendKey.value = 'enter'
+  try {
+    const saved = JSON.parse(localStorage.getItem(`giorgio-im-settings:${props.init.user.id}`) || '{}')
+    if (saved.theme === 'dark') theme.value = 'dark'
+    if (saved.sendKey === 'ctrl-enter') sendKey.value = 'ctrl-enter'
+    if (isSkin(saved.skin)) skin.value = saved.skin
+    if (resolveBackground(saved.customBackground)) customBackground.value = saved.customBackground
+    if (saved.background === 'none' || resolveBackground(saved.background) || (saved.background === 'custom' && customBackground.value)) background.value = saved.background
+  } catch { /* Storage may be unavailable. */ }
+}
+
 function saveSettings(): void {
   try {
-    localStorage.setItem(`giorgio-im-settings:${props.init.user.id}`, JSON.stringify({ theme: theme.value, sendKey: sendKey.value }))
-  } catch { /* Storage may be unavailable. */ }
+    localStorage.setItem(`giorgio-im-settings:${props.init.user.id}`, JSON.stringify({ theme: theme.value, sendKey: sendKey.value, skin: skin.value, background: background.value, customBackground: customBackground.value }))
+  } catch { appearanceError.value = new LocaleError('appearanceSaveFailed') }
+}
+
+function setBackground(value: string): void {
+  backgroundRequest++
+  backgroundBusy.value = false
+  appearanceError.value = ''
+  background.value = value
+  saveSettings()
+}
+
+function resetAppearance(persist = true): void {
+  backgroundRequest++
+  backgroundBusy.value = false
+  appearanceError.value = ''
+  theme.value = 'light'
+  skin.value = isSkin(props.skin) ? props.skin : 'blue'
+  background.value = props.background && resolveBackground(props.background) ? props.background : 'none'
+  customBackground.value = backgrounds.some(item => item.id === background.value) ? '' : background.value
+  if (customBackground.value) background.value = 'custom'
+  if (persist) saveSettings()
+}
+
+async function changeBackground(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const request = ++backgroundRequest
+  backgroundBusy.value = true
+  appearanceError.value = ''
+  try {
+    const image = await readBackground(file)
+    if (request !== backgroundRequest) return
+    customBackground.value = image
+    setBackground('custom')
+  } catch (error) {
+    if (request === backgroundRequest) appearanceError.value = error instanceof Error ? error : new LocaleError('backgroundReadFailed')
+  } finally {
+    if (request === backgroundRequest) backgroundBusy.value = false
+  }
 }
 
 function closeChat(key: string): void {
@@ -1877,8 +1992,22 @@ async function sendAttachment(event: Event, kind: ImAttachment['kind']): Promise
 
 async function requestCall(type: ImCallType): Promise<void> {
   const receiver = active.value
-  if (!receiver || receiver.type === 'ai' || composerRestriction.value || callBusy.value) return
+  if (!receiver || receiver.type === 'ai' || composerRestriction.value || callBusy.value || callActive.value) return
   const session = toolbarSession
+  if (!props.onCall && props.voiceCall) {
+    if (receiver.type === 'group') {
+      callBusy.value = true
+      try {
+        const members = props.loadGroupMembers ? await props.loadGroupMembers({ ...receiver, type: 'group' }) : groupMembers[keyOf('group', receiver.id)] || []
+        if (members.filter(member => String(member.id) !== String(props.init.user.id)).length === 0) throw new LocaleError('groupCallNoMembers')
+        if (!disposed && toolbarSession === session && !callActive.value) { cancelVoice(); groupCall.start(receiver, type) }
+      } catch { if (!disposed && toolbarSession === session) toolbarError.value = new LocaleError('callFailed') }
+      finally { callBusy.value = false }
+      return
+    }
+    voiceCall.start(receiver, type)
+    return
+  }
   if (!props.onCall) { openUtility('call-info'); return }
   callBusy.value = true
   try {
@@ -1982,11 +2111,44 @@ function timeLabel(timestamp: number): string {
   return timeFormatter.value.format(timestamp)
 }
 
-defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMessage, getChatNotice, setMessageRead, setTyping, addContacts, addFriendGroup, moveFriend, removeFriend, deleteFriend, blockFriend, unblockFriend, setFriendBlocked, setBlockedUsers, getBlockedUsers, removeGroup, setGroupMute, setGroupNotificationsMuted, setGroupAdmin, getNotice, setFriendStatus, setChatStatus, setToolbar, open, close, resetWindows, setLocale })
+defineExpose({ receiveCallSignal, setContacts, setUser, updateContact, setGroupMembers, chat, getMessage, getChatNotice, setMessageRead, setTyping, addContacts, addFriendGroup, moveFriend, removeFriend, deleteFriend, blockFriend, unblockFriend, setFriendBlocked, setBlockedUsers, getBlockedUsers, removeGroup, setGroupMute, setGroupNotificationsMuted, setGroupAdmin, getNotice, setFriendStatus, setChatStatus, setToolbar, open, close, resetWindows, setLocale })
 </script>
 
 <template>
-  <div class="gim-root" :lang="locale" :class="{ 'gim-dark': theme === 'dark' }">
+  <div class="gim-root" :lang="locale" :data-skin="skin" :class="{ 'gim-dark': theme === 'dark', 'gim-wallpaper': !!backgroundImage }" :style="widgetStyle">
+    <section v-if="callState.phase !== 'idle'" class="gim-call" :class="{ 'gim-call-video': callState.type === 'video' }" role="dialog" :aria-label="t(callState.type === 'video' ? 'videoCall' : 'voiceCall')">
+      <img :src="callState.contact?.avatar || defaultAvatar" alt="" />
+      <strong>{{ callState.contact?.groupname || callState.contact?.username || t(callState.type === 'video' ? 'videoCall' : 'voiceCall') }}</strong>
+      <p role="status" aria-live="polite">{{ t(callStatus) }}<span v-if="callState.phase === 'connected'"> · {{ Math.floor(callState.duration / 60).toString().padStart(2, '0') }}:{{ (callState.duration % 60).toString().padStart(2, '0') }}</span></p>
+      <div v-if="callState.groupId !== undefined && callActive && callState.phase !== 'incoming'" class="gim-call-participants" :class="{ 'gim-call-participants-video': callState.type === 'video' }">
+        <div v-for="member in remoteCallParticipants" :key="member.id" class="gim-call-participant" :data-user-id="member.id">
+          <video v-if="callState.type === 'video'" :ref="groupVideoReference(member.id)" class="gim-group-call-video" :data-user-id="member.id" :aria-label="member.username || t('callRemoteVideo')" autoplay muted playsinline />
+          <img v-else :src="member.avatar || defaultAvatar" alt="" />
+          <span>{{ member.username || t('callRemoteVideo') }}</span>
+        </div>
+        <p v-if="!remoteCallParticipants.length">{{ t('groupCallWaiting') }}</p>
+        <div v-if="callState.type === 'video'" class="gim-call-preview" :class="{ 'gim-call-camera-off': callState.cameraOff }">
+          <video :ref="setLocalVideo" :aria-label="t('callLocalVideo')" autoplay muted playsinline />
+          <span v-if="callState.cameraOff">{{ t('callCameraOff') }}</span>
+        </div>
+      </div>
+      <div v-else-if="callState.type === 'video' && callActive && callState.phase !== 'incoming'" class="gim-call-videos">
+        <video :ref="setRemoteVideo" class="gim-call-remote" :aria-label="t('callRemoteVideo')" autoplay muted playsinline />
+        <span v-if="callState.phase !== 'connected'" class="gim-call-video-waiting">{{ t('callWaitingVideo') }}</span>
+        <div class="gim-call-preview" :class="{ 'gim-call-camera-off': callState.cameraOff }">
+          <video :ref="setLocalVideo" :aria-label="t('callLocalVideo')" autoplay muted playsinline />
+          <span v-if="callState.cameraOff">{{ t('callCameraOff') }}</span>
+        </div>
+      </div>
+      <div class="gim-call-actions">
+        <button v-if="callState.phase === 'incoming'" type="button" class="gim-call-accept" @click="acceptCall">{{ t('callAccept') }}</button>
+        <button v-if="['calling', 'connecting', 'connected'].includes(callState.phase)" type="button" :aria-pressed="callState.muted" @click="callController.mute">{{ t(callState.muted ? 'callUnmute' : 'callMute') }}</button>
+        <button v-if="callState.type === 'video' && ['calling', 'connecting', 'connected'].includes(callState.phase)" type="button" :aria-pressed="callState.cameraOff" @click="callController.camera">{{ t(callState.cameraOff ? 'callEnableCamera' : 'callDisableCamera') }}</button>
+        <button v-if="callState.playbackBlocked" type="button" @click="callController.play">{{ t('callPlayAudio') }}</button>
+        <button v-if="callActive" type="button" class="gim-call-end" @click="hangupCall">{{ t(callState.phase === 'incoming' ? 'callReject' : 'callHangup') }}</button>
+        <button v-else type="button" @click="callController.dismiss">{{ t('callClose') }}</button>
+      </div>
+    </section>
     <button v-if="customerService ? !chatOpen : !panelOpen" class="gim-launcher" :class="{ 'gim-service-launcher': customerService }" type="button" :aria-label="customerService ? t('openSupport') : t('openChat')" :title="customerService ? displayName(customerService) : undefined" @click="open">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5 8 8 0 0 1-3.4-.76L4 20l1.76-5.1A8 8 0 0 1 5 11.5a7.5 7.5 0 0 1 15 0Z"/><path d="M8.5 11.5h8m-8 3h5"/></svg>
       <span v-if="totalUnread" class="gim-launcher-badge">{{ totalUnread > 99 ? '99+' : totalUnread }}</span>
@@ -2115,7 +2277,7 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
             <div class="gim-avatar" :class="{ 'gim-group-avatar': active.type === 'group', 'gim-offline': isOffline(active), 'gim-blocked': isBlockedContact(active) }"><img v-if="active.avatar || active.type !== 'group'" :src="active.avatar || (active.type === 'ai' ? aiAvatar : defaultAvatar)" :alt="displayName(active)" /><span v-else>{{ avatarLetter(active) }}</span></div>
             <div class="gim-chat-heading" :class="{ 'gim-blocked-contact': isBlockedContact(active) }"><strong>{{ displayName(active) }}<span v-if="isBlockedContact(active)" class="gim-blocked-label">{{ t('blockedUser') }}</span></strong><small>{{ chatStatus[activeKey || ''] || typingLabel || (active.type === 'ai' ? composerRestriction ? t('replying') : t('aiChat') : active.type === 'group' ? t('groupChat') : isOffline(active) ? t('offline') : t('online')) }}</small></div>
             <button v-if="active.type === 'group'" type="button" class="gim-group-members-trigger" :aria-label="t('viewGroupMembers')" :title="t('viewGroupMembers')" @click="openUtility('members')"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v2"/></svg><span>{{ active.members !== undefined ? t('groupMembersCount', { count: active.members }) : t('groupMembers') }}</span></button>
-            <div class="gim-chat-controls"><button v-if="active.type === 'ai'" type="button" :aria-label="active.maximized ? t('restoreWindow') : t('maximiseWindow')" :title="active.maximized ? t('restoreWindow') : t('maximiseWindow')" @click="active.maximized = !active.maximized"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="active.maximized" d="M8 8V4h12v12h-4M4 8h12v12H4Z"/><rect v-else x="4" y="4" width="16" height="16" rx="1"/></svg></button><button type="button" :aria-label="t('minimiseChat')" @click="chatOpen = false">−</button><button type="button" :aria-label="t('closeChat')" @click="customerService ? (chatOpen = false) : activeKey && closeChat(activeKey)">×</button></div>
+            <div class="gim-chat-controls"><button v-if="customerService" type="button" :aria-label="t('settings')" :title="t('settings')" @click="openUtility('settings')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-.6 2.5-1.6.9-2.5-.7-2 3.5 1.9 1.8v2l-1.9 1.8 2 3.5 2.5-.7 1.6.9.6 2.5h4l.6-2.5 1.6-.9 2.5.7 2-3.5-1.9-1.8v-2l1.9-1.8-2-3.5-2.5.7-1.6-.9L14 3Z"/><circle cx="12" cy="12" r="3"/></svg></button><button v-if="active.type === 'ai'" type="button" :aria-label="active.maximized ? t('restoreWindow') : t('maximiseWindow')" :title="active.maximized ? t('restoreWindow') : t('maximiseWindow')" @click="active.maximized = !active.maximized"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="active.maximized" d="M8 8V4h12v12h-4M4 8h12v12H4Z"/><rect v-else x="4" y="4" width="16" height="16" rx="1"/></svg></button><button type="button" :aria-label="t('minimiseChat')" @click="chatOpen = false">−</button><button type="button" :aria-label="t('closeChat')" @click="customerService ? (chatOpen = false) : activeKey && closeChat(activeKey)">×</button></div>
           </header>
           <div ref="messageList" class="gim-messages" role="log" aria-live="polite">
             <button v-if="historyError[activeKey || '']" class="gim-history-error" type="button" @click="activeKey && fetchHistory(activeKey, active)">{{ t('historyLoadFailed') }}</button>
@@ -2181,7 +2343,22 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
       <div v-if="utility" class="gim-modal-backdrop" @click.self="!managementBusy && (utility = null)">
         <section class="gim-modal" :aria-label="utilityTitle">
           <header><strong>{{ utilityTitle }}</strong><button type="button" :aria-label="t('closeDialog')" :disabled="managementBusy" @click="utility = null">×</button></header>
-          <div v-if="utility === 'call-info'" class="gim-management-form gim-call-info" role="status">
+          <div v-if="utility === 'settings'" class="gim-settings">
+            <div class="gim-appearance-heading"><strong>{{ t('skinColour') }}</strong><label>{{ t('darkMode') }}<button class="gim-theme-switch" type="button" role="switch" :aria-label="t('darkMode')" :aria-checked="theme === 'dark'" @click="theme = theme === 'dark' ? 'light' : 'dark'; appearanceError = ''; saveSettings()"><span aria-hidden="true" /></button></label></div>
+            <div class="gim-skin-options" role="group" :aria-label="t('skinColour')">
+              <button v-for="item in skins" :key="item.id" type="button" :data-skin="item.id" :aria-label="t(item.label)" :aria-pressed="skin === item.id" @click="skin = item.id; appearanceError = ''; saveSettings()"><span :style="{ backgroundColor: item.color }"><svg v-if="skin === item.id" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 12 4 4 8-8" /></svg></span><small>{{ t(item.label) }}</small></button>
+            </div>
+            <div class="gim-appearance-heading"><strong>{{ t('backgroundImage') }}</strong><button type="button" class="gim-text-action" :aria-label="t('appearanceReset')" @click="resetAppearance()">{{ t('appearanceReset') }}</button></div>
+            <div class="gim-background-options" role="group" :aria-label="t('backgroundImage')">
+              <button v-for="item in backgrounds" :key="item.id" type="button" :data-background="item.id" :aria-label="t(item.label)" :aria-pressed="background === item.id" @click="setBackground(item.id)"><span :class="{ 'gim-background-none': !item.image }"><img v-if="item.image" :src="item.image" alt="" /><svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5zM5 5l14 14" /></svg><i v-if="background === item.id">✓</i></span><small>{{ t(item.label) }}</small></button>
+              <button v-if="customBackground" type="button" data-background="custom" :aria-label="t('backgroundCustom')" :aria-pressed="background === 'custom'" @click="setBackground('custom')"><span><img :src="resolveBackground(customBackground)" alt="" /><i v-if="background === 'custom'">✓</i></span><small>{{ t('backgroundCustom') }}</small></button>
+            </div>
+            <div class="gim-background-upload"><button type="button" :disabled="backgroundBusy" @click="backgroundInput?.click()">{{ backgroundBusy ? t('backgroundLoading') : t('backgroundUpload') }}</button><small>{{ t('backgroundUploadHint') }}</small><input ref="backgroundInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" hidden :aria-label="t('backgroundChoose')" @change="changeBackground" /></div>
+            <p v-if="appearanceError" class="gim-form-error" role="alert">{{ errorText(appearanceError) }}</p>
+            <label>{{ t('sendShortcut') }}<select v-model="sendKey" @change="saveSettings"><option value="enter">{{ t('enterSend') }}</option><option value="ctrl-enter">{{ t('ctrlSend') }}</option></select></label>
+            <button type="button" class="gim-blocklist-entry" :aria-label="t('blocklist')" @click="openUtility('blocklist')">{{ t('blocklist') }}<span>{{ blockedUsers.length }} ›</span></button>
+          </div>
+          <div v-else-if="utility === 'call-info'" class="gim-management-form gim-call-info" role="status">
             <p>{{ t('callRequired') }}</p>
             <p class="gim-form-hint">{{ t('callIntegrationHint') }}</p>
             <footer class="gim-management-footer"><button type="button" :aria-label="t('callIntegrationConfirm')" @click="utility = null">{{ t('callIntegrationConfirm') }}</button></footer>
@@ -2239,7 +2416,6 @@ defineExpose({ setContacts, setUser, updateContact, setGroupMembers, chat, getMe
             <p v-if="managementError" class="gim-form-error" role="alert">{{ errorText(managementError) }}</p>
             <footer class="gim-management-footer"><button type="button" :disabled="managementBusy" @click="utility = null">{{ t('cancel') }}</button><button type="submit" class="gim-danger" :disabled="managementBusy">{{ managementBusy ? t('leaving') : t('confirmLeave') }}</button></footer>
           </form>
-          <div v-else-if="utility === 'settings'" class="gim-settings"><button type="button" class="gim-blocklist-entry" :aria-label="t('blocklist')" @click="openUtility('blocklist')">{{ t('blocklist') }}<span>{{ blockedUsers.length }} ›</span></button><label>{{ t('darkMode') }}<button class="gim-theme-switch" type="button" role="switch" :aria-label="t('darkMode')" :aria-checked="theme === 'dark'" @click="theme = theme === 'dark' ? 'light' : 'dark'; saveSettings()"><span aria-hidden="true" /></button></label><label>{{ t('sendShortcut') }}<select v-model="sendKey" @change="saveSettings"><option value="enter">{{ t('enterSend') }}</option><option value="ctrl-enter">{{ t('ctrlSend') }}</option></select></label></div>
           <form v-else-if="(utility === 'delete-friend' || utility === 'block-friend') && managedFriend" class="gim-management-form gim-friend-confirm" @submit.prevent="submitFriendAction(utility === 'delete-friend' ? 'delete' : 'block', managedFriend)">
             <p>{{ t(utility === 'delete-friend' ? 'confirmDeleteFriend' : 'confirmBlockFriend', { name: displayName(managedFriend) }) }}</p>
             <p v-if="managementError" class="gim-form-error" role="alert">{{ errorText(managementError) }}</p>

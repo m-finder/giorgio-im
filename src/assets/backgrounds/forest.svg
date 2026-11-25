@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#c4ded7"/><stop offset="1" stop-color="#e8e7ce"/></linearGradient>
+    <linearGradient id="lake" x2="0" y2="1"><stop stop-color="#9bc1b2"/><stop offset="1" stop-color="#447e73"/></linearGradient>
+    <path id="pine" d="m0 0-33 70h19l-33 60h30l-38 65H55l-38-65h30L14 70h19z"/>
+  </defs>
+  <path fill="url(#sky)" d="M0 0h1200v800H0z"/>
+  <circle cx="350" cy="225" r="98" fill="#f5efd6"/>
+  <path fill="#accabd" d="M0 400q185-214 401-41t415-8 384 75v374H0z"/>
+  <path fill="#7da998" d="M0 493q215-167 425-25t385-1 390-6v339H0z"/>
+  <path fill="url(#lake)" d="M0 570q310-51 600 19t600-10v221H0z"/>
+  <path fill="#3f7567" d="M0 528q164-39 345 78L0 731zm1200-20q-184 2-300 113l300 101z"/>
+  <g fill="#37685d"><use href="#pine" transform="translate(100 385) scale(1.4)"/><use href="#pine" transform="translate(238 474) scale(.8)"/><use href="#pine" transform="translate(1090 365) scale(1.5)"/><use href="#pine" transform="translate(985 454) scale(.9)"/></g>
+  <g fill="none" stroke="#dfebdb" stroke-opacity=".4" stroke-width="3"><path d="M400 644h246m51 31h168M241 714h305m80 38h166"/></g>
+</svg>

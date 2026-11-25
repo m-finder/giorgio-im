@@ -1,7 +1,7 @@
 import { createIM } from './index'
 import { assertImTransport, type ImTransportOptions } from './transport'
 import { createUuid } from './uuid'
-import type { ImChatNotice, ImContact, ImFriendGroup, ImGroupMember, ImId, ImInit, ImMessage, ImNotice, ImOptions, ImReadPayload, ImReadReceipt, ImSendPayload, ImTypingPayload, ImTypingState, ImUser, ImWidgetApi } from './types'
+import type { ImCallSignal, ImChatNotice, ImContact, ImFriendGroup, ImGroupMember, ImId, ImInit, ImMessage, ImNotice, ImOptions, ImReadPayload, ImReadReceipt, ImSendPayload, ImTypingPayload, ImTypingState, ImUser, ImVoiceCallOptions, ImWidgetApi } from './types'
 
 export type ImConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline' | 'closed'
 
@@ -17,7 +17,7 @@ export interface ImConnectionOptions {
   /** TLS policy for API requests and the socket connection. */
   transport?: ImTransportOptions
   /** Widget UI options and optional application callbacks. Server data supplies init. */
-  widget?: Omit<ImOptions, 'init'>
+  widget?: Omit<ImOptions, 'init' | 'voiceCall'> & { voiceCall?: Partial<ImVoiceCallOptions> }
   onConnectionChange?: (state: ImConnectionState) => void
   onError?: (error: Error, operation: string, payload?: ImSendPayload) => void
 }
@@ -71,16 +71,18 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
     if (state !== next) { state = next; options.onConnectionChange?.(next) }
   }
   async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-    if (!alive) throw new Error('IM connection is closed')
+    const endingCall = path === '/calls/signals' && typeof body === 'object' && body !== null && 'action' in body && ['end', 'reject', 'leave'].includes(String(body.action))
+    if (!alive && !endingCall) throw new Error('IM connection is closed')
     const controller = new AbortController()
-    controllers.add(controller)
+    if (!endingCall) controllers.add(controller)
     const timer = setTimeout(() => controller.abort(), options.requestTimeout ?? 15000)
     try {
       const token = typeof options.token === 'function' ? await options.token() : options.token
-      if (!alive) throw new Error('IM connection is closed')
+      if (!alive && !endingCall) throw new Error('IM connection is closed')
       const form = body instanceof FormData
       const response = await fetch(`${root}${path}`, {
         method, signal: controller.signal, redirect: 'error',
+        ...(endingCall ? { keepalive: true } : {}),
         headers: { Accept: 'application/json', Authorization: `Bearer ${token}`, ...(!form && body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
         ...(body !== undefined ? { body: form ? body : JSON.stringify(body) } : {}),
       })
@@ -201,6 +203,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
     },
     uploadAttachment: (file) => upload(file, file.type.startsWith('image/') ? 'image' : 'file'),
     uploadVoice: file => upload(file, 'audio'),
+    voiceCall: { ...ui.voiceCall, sendSignal: ui.voiceCall?.sendSignal ?? (signal => request('/calls/signals', 'POST', signal)) },
     onSendMessage: payload => {
       if (payload.receiver.type === 'ai') { ui.onSendMessage?.(payload); return }
       void sendMessage(payload).then(() => {
@@ -249,6 +252,7 @@ export async function createConnectedIM(options: ImConnectionOptions): Promise<C
         break
       case 'message.read': im.setMessageRead(data as unknown as ImReadReceipt); break
       case 'typing': im.setTyping(data as unknown as ImTypingState); break
+      case 'call.signal': im.receiveCallSignal(data as unknown as ImCallSignal); break
       case 'group.updated': {
         const group = data.contact as ImContact & { type: 'group' }
         im.updateContact(group)

@@ -101,6 +101,8 @@ const init: ImInit = {
 
 const im = createIM({
   init,
+  panelWidth: 360,
+  panelHeight: 680,
   onSendMessage(payload) {
     console.log(payload)
   },
@@ -119,6 +121,8 @@ im.open()
 ```ts
 im.destroy()
 ```
+
+`panelWidth`、`panelHeight` 设置好友列表主窗口的宽高，单位为像素，默认 `316 × 630`。超出视口时自动缩小；屏幕宽度不超过 `540px` 时保持全屏。`createConnectedIM()` 将它们放在 `widget` 中，组件也可直接传入。
 
 ## Vue 组件
 
@@ -342,7 +346,20 @@ const im = createIM({
 
 语音录制需要 `MediaRecorder` 和麦克风权限
 
-通话通过 `onCall` 交给应用处理
+`createConnectedIM` 内置好友间的一对一 WebRTC 语音和视频通话，支持来电接听、拒绝、挂断、麦克风静音和通话时长。视频通话显示双方画面，支持独立关闭或开启摄像头。升级配套后端后运行 `php artisan migrate`。摄像头和麦克风需要 HTTPS 或 localhost，收到来电后仅在点击接听时申请权限。
+
+跨网络通话可通过 `widget.voiceCall.iceServers` 配置自己的 STUN/TURN。使用连接器时保留默认信令，只覆盖 ICE 配置：
+
+```ts
+const im = await createConnectedIM({
+  token,
+  widget: { voiceCall: { iceServers: [{ urls: 'turn:relay.example.com:3478', username, credential }] } },
+})
+```
+
+群聊也可通过工具栏发起语音或视频通话，邀请当前群成员，最多 4 人同时接通。成员可独立挂断，发起者挂断会结束整场通话。群通话采用 WebRTC 网状连接，每位成员分别连接其他成员；人数增加时会提高带宽和设备负担，适合小规模群聊。
+
+单独使用 `createIM` 或组件时，配置 `voiceCall.sendSignal` 将信令发送给已鉴权的对端，并通过 `im.receiveCallSignal(signal)` 接收信令；视频信令需保留 `type: 'video'`，群通话需保留 `groupId`、`participants` 和 `group`。通过 `loadGroupMembers` 或 `setGroupMembers` 提供群成员列表。配置 `onCall` 时优先使用应用自己的通话服务。
 
 ## 多语言
 
@@ -359,6 +376,12 @@ const im = createIM({
 
 im.setLocale('fr')
 ```
+
+## 换肤与背景
+
+在“设置”中，可选择六种主题配色、四张内置背景，或上传最大 2 MiB 的本地图片。支持无背景、深色模式和恢复默认外观；选择按账号保存到浏览器，刷新后恢复，无需开启聊天记录备份。
+
+`createIM({ init, skin: 'green', background: 'mountains' })` 可设置初始外观。`skin` 支持 `blue`、`green`、`purple`、`rose`、`orange`、`slate`；`background` 支持 `none`、`mountains`、`forest`、`sunset`、`night`，也可传入图片 URL。本地已保存的选择优先。
 
 ## 本地备份
 

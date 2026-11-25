@@ -103,6 +103,8 @@ const init: ImInit = {
 
 const im = createIM({
   init,
+  panelWidth: 360,
+  panelHeight: 680,
   onSendMessage: payload => console.log(payload),
 })
 
@@ -115,6 +117,8 @@ im.open()
 It mounts to `document.body` and injects its styles
 
 Destroy the instance with `im.destroy()`
+
+`panelWidth` and `panelHeight` set the contacts panel dimensions in pixels, defaulting to `316 × 630`. Oversized panels fit within the viewport; screens up to `540px` wide use fullscreen. Pass these options inside `widget` for `createConnectedIM()`, or directly as component props.
 
 ## Vue component
 
@@ -334,7 +338,20 @@ Click a chat image or quoted thumbnail to preview it. Use the previous/next butt
 
 Voice recording requires `MediaRecorder` and microphone permission
 
-`onCall` delegates voice and video calls to the application
+`createConnectedIM` includes one-to-one WebRTC voice and video calls between friends, with accept, decline, hang-up, microphone mute and elapsed time. Video calls show both participants and let you turn the camera off independently. Run `php artisan migrate` after upgrading the companion backend. Camera and microphone access require HTTPS or localhost and are requested only after accepting an incoming call.
+
+Configure your STUN/TURN servers through `widget.voiceCall.iceServers`; the connector supplies the signalling callback:
+
+```ts
+const im = await createConnectedIM({
+  token,
+  widget: { voiceCall: { iceServers: [{ urls: 'turn:relay.example.com:3478', username, credential }] } },
+})
+```
+
+The group chat toolbar can also start voice and video calls, inviting current group members with up to 4 connected participants. Members can leave individually; the initiator hanging up ends the call. Group calls use a WebRTC mesh, connecting every participant to the others, so bandwidth and device load grow with the number of participants. This suits small groups.
+
+For standalone widgets, configure `voiceCall.sendSignal` to deliver signals to an authenticated peer and pass incoming signals to `im.receiveCallSignal(signal)`, preserving `type: 'video'` for video signals and `groupId`, `participants` and `group` for group calls. Supply group members with `loadGroupMembers` or `setGroupMembers`. When provided, `onCall` takes precedence over built-in calling.
 
 ## Locales
 
@@ -351,6 +368,12 @@ const im = createIM({
 
 im.setLocale('fr')
 ```
+
+## Skins and backgrounds
+
+Use “Settings” to choose six accent colours, four built-in wallpapers or a local image up to 2 MiB. Background removal, dark mode and reset are supported. Preferences are saved per account in browser storage and restored on refresh, independently of chat backups.
+
+Set initial defaults with `createIM({ init, skin: 'green', background: 'mountains' })`. `skin` accepts `blue`, `green`, `purple`, `rose`, `orange` or `slate`. `background` accepts `none`, `mountains`, `forest`, `sunset`, `night` or an image URL. Saved preferences take precedence.
 
 ## Local backup
 
