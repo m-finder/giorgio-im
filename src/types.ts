@@ -2,6 +2,7 @@ import type { ImLocaleMessages, ImLocales } from './locales'
 
 export type ImId = string | number
 export type ImChatType = 'friend' | 'group' | 'ai'
+export type ImSkin = 'blue' | 'green' | 'purple' | 'rose' | 'orange' | 'slate'
 
 export interface ImUser {
   id: ImId
@@ -146,6 +147,26 @@ export interface ImCallPayload {
   receiver: ImContact & { type: ImChatType }
 }
 
+export interface ImCallSignal {
+  callId: string
+  id: ImId
+  action: 'invite' | 'join' | 'leave' | 'offer' | 'answer' | 'end' | 'reject' | 'answered' | 'keepalive'
+  groupId?: ImId
+  type?: ImCallType
+  sdp?: string
+  contact?: ImContact
+  group?: ImContact
+  participants?: ImContact[]
+  expiresAt?: number
+}
+
+export interface ImVoiceCallOptions {
+  /** Deliver signals to the authenticated peer; feed received signals to receiveCallSignal. */
+  sendSignal: (signal: ImCallSignal) => Promise<unknown> | unknown
+  /** STUN/TURN servers used by RTCPeerConnection. */
+  iceServers?: RTCIceServer[]
+}
+
 export interface ImSendPayload {
   /** Stable client message ID for optimistic display, retries and server echoes. */
   mid?: ImId
@@ -217,6 +238,8 @@ export interface ImToolbarItem {
 }
 
 export interface ImWidgetApi {
+  /** Apply an audio/video call signal received from an authenticated signalling service. */
+  receiveCallSignal: (signal: ImCallSignal) => void
   /** Replace server contacts, preserving removed friends as read-only history. */
   setContacts: (contacts: Pick<ImInit, 'friend' | 'group' | 'blocked' | 'recent'>) => void
   /** Apply a server profile update without emitting edit callbacks. */
@@ -272,6 +295,12 @@ export interface ImWidgetApi {
 
 export interface ImOptions {
   init: ImInit
+  panelWidth?: number
+  panelHeight?: number
+  /** Initial accent colour; saved preferences take precedence. */
+  skin?: ImSkin
+  /** Initial wallpaper preset, HTTP(S)/relative image URL or raster data URL. */
+  background?: string
   /** UI language. Built-ins: 'zh-CN' (default), 'en' and English regional variants. */
   locale?: string
   /** Custom message packs or overrides, indexed by locale. Missing keys fall back to the built-in pack. */
@@ -318,7 +347,9 @@ export interface ImOptions {
   uploadAttachment?: (file: File, receiver: ImContact & { type: ImChatType }) => Promise<string> | string
   /** Upload a recorded clip and return a durable URL. Falls back to uploadAttachment. */
   uploadVoice?: (file: File, receiver: ImContact & { type: ImChatType }, duration: number) => Promise<string> | string
-  /** Hand off a voice/video call to the host RTC service; omit to show integration guidance. */
+  /** Built-in private and group WebRTC voice/video calls. Automatically supplied by createConnectedIM. */
+  voiceCall?: ImVoiceCallOptions
+  /** Override built-in calling with the host RTC service. */
   onCall?: (payload: ImCallPayload) => void | Promise<void>
   /** Override built-in toolbar buttons by ID or add custom buttons. */
   toolbar?: ImToolbarItem[]
