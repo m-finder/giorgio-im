@@ -357,7 +357,9 @@ const im = await createConnectedIM({
 })
 ```
 
-群聊也可通过工具栏发起语音或视频通话，邀请当前群成员，最多 4 人同时接通。成员可独立挂断，发起者挂断会结束整场通话。群通话采用 WebRTC 网状连接，每位成员分别连接其他成员；人数增加时会提高带宽和设备负担，适合小规模群聊。
+设置和通话窗口支持拖动；通话最小化时，语音显示说话人的头像和姓名，视频保留画面。
+
+群聊也可通过工具栏发起语音或视频通话，邀请当前群成员，不设固定人数上限。成员（含发起者）挂断只退出本人，退出后不足两人则结束通话。群通话采用 WebRTC 网状连接，每位成员分别连接其他成员；人数增加时会提高带宽和设备负担，适合小规模群聊。
 
 单独使用 `createIM` 或组件时，配置 `voiceCall.sendSignal` 将信令发送给已鉴权的对端，并通过 `im.receiveCallSignal(signal)` 接收信令；视频信令需保留 `type: 'video'`，群通话需保留 `groupId`、`participants` 和 `group`。通过 `loadGroupMembers` 或 `setGroupMembers` 提供群成员列表。配置 `onCall` 时优先使用应用自己的通话服务。
 
@@ -424,7 +426,6 @@ const im = createIM({
 npm install
 npm run dev
 npm run typecheck
-npm test
 npm run build
 ```
 
