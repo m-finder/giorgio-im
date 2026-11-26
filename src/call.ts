@@ -1,4 +1,5 @@
 import { createUuid } from './uuid'
+import { createSpeakerMonitor, type CallSpeaker } from './call-speaker'
 import type { ImCallSignal, ImCallType, ImContact, ImVoiceCallOptions } from './types'
 import type { ImLocaleKey } from './locales'
 
@@ -6,6 +7,7 @@ export interface VoiceCallState {
   phase: 'idle' | 'incoming' | 'requesting' | 'calling' | 'connecting' | 'connected' | 'ended'
   type: ImCallType
   contact?: ImContact
+  speaker?: CallSpeaker
   muted: boolean
   cameraOff: boolean
   duration: number
@@ -14,7 +16,7 @@ export interface VoiceCallState {
 }
 
 /** One active media connection per widget, independent of the selected conversation. */
-export function createVoiceCall(options: () => ImVoiceCallOptions | undefined, update: (state: VoiceCallState) => void) {
+export function createVoiceCall(options: () => ImVoiceCallOptions | undefined, update: (state: VoiceCallState) => void, user?: () => CallSpeaker) {
   let state: VoiceCallState = { phase: 'idle', type: 'voice', muted: false, cameraOff: false, duration: 0, playbackBlocked: false }
   let current: { id: string; type: ImCallType; contact: ImContact; incoming: boolean; sdp?: string; peer?: RTCPeerConnection; stream?: MediaStream; remoteStream?: MediaStream; audio?: HTMLAudioElement; cancelGather?: () => void } | undefined
   let localVideo: HTMLVideoElement | null = null
@@ -25,6 +27,7 @@ export function createVoiceCall(options: () => ImVoiceCallOptions | undefined, u
   let queue: Promise<void> | undefined
   let disposed = false
   const publish = (patch: Partial<VoiceCallState>) => { state = { ...state, ...patch }; if (!disposed) update(state) }
+  const speakers = createSpeakerMonitor(() => current?.peer ? [{ peer: current.peer, contact: current.contact }] : [], () => state.muted ? undefined : user?.(), speaker => publish({ speaker }))
   const send = (signal: ImCallSignal) => {
     let delivery: Promise<unknown>
     try { delivery = queue ? queue.then(() => options()?.sendSignal(signal)) : Promise.resolve(options()?.sendSignal(signal)) }
@@ -37,6 +40,7 @@ export function createVoiceCall(options: () => ImVoiceCallOptions | undefined, u
   function finish(reason: ImLocaleKey = 'callEnded', notify = false): void {
     const call = current
     current = undefined
+    speakers.stop()
     clearTimeout(deadline)
     clearTimeout(disconnected)
     clearInterval(ticker)
@@ -47,7 +51,7 @@ export function createVoiceCall(options: () => ImVoiceCallOptions | undefined, u
     void bindVideo(localVideo)
     void bindVideo(remoteVideo)
     if (call && notify) void send({ callId: call.id, id: call.contact.id, action: state.phase === 'incoming' ? 'reject' : 'end' }).catch(() => {})
-    publish({ phase: 'ended', reason, playbackBlocked: false })
+    publish({ phase: 'ended', reason, playbackBlocked: false, speaker: undefined })
   }
 
   function timeout(milliseconds: number): void {
@@ -79,6 +83,7 @@ export function createVoiceCall(options: () => ImVoiceCallOptions | undefined, u
       call.stream = stream
       if (call.type === 'video') void bindVideo(localVideo, stream).catch(() => {})
       const peer = call.peer = new RTCPeerConnection({ iceServers: options()?.iceServers ?? [{ urls: 'stun:stun.l.google.com:19302' }] })
+      if (call.type === 'voice') speakers.start()
       const audio = call.audio = new Audio()
       audio.autoplay = true
       peer.ontrack = event => {

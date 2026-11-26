@@ -230,7 +230,7 @@
 .gim-composer-footer button:disabled { cursor:default; opacity:.5; box-shadow:none; }
 .gim-composer-footer button span { margin-left:5px; }
 .gim-modal-backdrop { position:fixed; inset:0; z-index:10010; display:grid; place-items:center; padding:16px; background:#17243a5c; }
-.gim-modal { width:min(440px,100%); max-height:min(560px,calc(100dvh - 32px)); display:flex; flex-direction:column; overflow:hidden; border-radius:16px; background:white; box-shadow:0 0 24px #0003; }
+.gim-modal { width:min(440px,100%); max-width:calc(100vw - 32px); max-height:min(560px,calc(100dvh - 32px)); display:flex; flex-direction:column; overflow:hidden; border-radius:16px; background:white; box-shadow:0 0 24px #0003; }
 .gim-modal>header { display:flex; align-items:center; justify-content:space-between; height:59px; flex:none; padding:0 20px; border-bottom:1px solid var(--gim-line); }
 .gim-modal>header strong { font-size:15px; }
 .gim-modal>header button { border:0; background:transparent; color:#91a0b3; font-size:24px; }
@@ -355,16 +355,17 @@
 
 .gim-blocked-contact .gim-contact-copy strong,.gim-blocked-contact .gim-conversation-name,.gim-blocked-contact.gim-chat-heading strong { color:var(--gim-muted); }
 
-.gim-call { position:fixed; z-index:2147483646; right:16px; top:24px; display:flex; flex-direction:column; align-items:center; gap:12px; width:300px; max-width:calc(100vw - 32px); padding:28px 20px; border:1px solid var(--gim-line); border-radius:16px; background:#fff; color:var(--gim-ink); box-shadow:0 16px 60px #0003; }
-.gim-call>img { width:64px; height:64px; border-radius:50%; object-fit:cover; }
-.gim-call>strong { max-width:100%; overflow-wrap:anywhere; }
-.gim-call>p { margin:0; color:var(--gim-muted); text-align:center; }
-.gim-call-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+.gim-call { position:fixed; z-index:2147483646; right:16px; top:24px; display:flex; flex-direction:column; align-items:center; gap:12px; width:300px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 48px); overflow-y:auto; padding:28px 20px; border:1px solid var(--gim-line); border-radius:16px; background:#fff; color:var(--gim-ink); box-shadow:0 16px 60px #0003; }
+.gim-call-header { display:flex; flex:none; flex-direction:column; align-items:center; gap:12px; width:100%; }
+.gim-call-header>img { width:64px; height:64px; border-radius:50%; object-fit:cover; }
+.gim-call-header>strong { max-width:100%; overflow-wrap:anywhere; }
+.gim-call-header>p { margin:0; color:var(--gim-muted); text-align:center; }
+.gim-call-actions { display:flex; flex:none; flex-wrap:wrap; justify-content:center; gap:8px; }
 .gim-call-actions button { padding:9px 16px; border:1px solid var(--gim-line); border-radius:20px; color:var(--gim-ink); background:transparent; cursor:pointer; }
 .gim-dark .gim-call { background:#202d40; }
 .gim-call-actions .gim-call-accept { color:#fff; background:#16865b; border-color:#16865b; }
 .gim-call-actions .gim-call-end { color:#fff; background:#d53f50; border-color:#d53f50; }
-.gim-call-video { width:360px; max-height:calc(100dvh - 48px); overflow-y:auto; padding:16px; }
+.gim-call-video { width:360px; padding:16px; }
 .gim-call-videos { position:relative; width:100%; aspect-ratio:16/10; flex-shrink:0; overflow:hidden; border-radius:12px; background:#101827; color:#fff; }
 .gim-call-remote { display:block; width:100%; height:100%; object-fit:contain; }
 .gim-call-video-waiting { position:absolute; inset:0; display:grid; place-items:center; font-size:13px; }
@@ -372,7 +373,7 @@
 .gim-call-preview video { display:block; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
 .gim-call-camera-off video { visibility:hidden; }
 .gim-call-preview>span { position:absolute; inset:0; display:grid; place-items:center; padding:6px; font-size:11px; text-align:center; }
-.gim-call-participants { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; gap:8px; }
+.gim-call-participants { display:grid; min-height:0; max-height:55dvh; overflow-y:auto; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; gap:8px; }
 .gim-call-participant { position:relative; display:flex; min-width:0; flex-direction:column; align-items:center; gap:6px; overflow:hidden; }
 .gim-call-participant>img { width:48px; height:48px; border-radius:50%; object-fit:cover; }
 .gim-call-participant>span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
@@ -382,6 +383,19 @@
 .gim-group-call-video { display:block; width:100%; height:100%; object-fit:contain; }
 .gim-call-participants-video .gim-call-participant>span { position:absolute; right:0; bottom:0; left:0; padding:4px 8px; background:#0008; }
 .gim-call-participants-video>.gim-call-preview { width:88px; height:76px; aspect-ratio:auto; }
+.gim-call-window-control { position:absolute; top:6px; right:6px; z-index:2; display:grid; place-items:center; width:28px; height:28px; padding:4px; border:0; border-radius:8px; color:var(--gim-muted); background:transparent; }
+.gim-call-window-control:hover,.gim-call-window-control:focus-visible { color:var(--gim-ink); background:var(--gim-line); }
+.gim-call-minimised { width:208px; padding:12px; gap:0; }
+.gim-call-minimised .gim-call-header { flex-direction:row; gap:10px; }
+.gim-call-minimised .gim-call-header>img { width:40px; height:40px; flex:none; }
+.gim-call-minimised .gim-call-header>strong { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.gim-call-minimised .gim-call-header>p,.gim-call-minimised .gim-call-actions,.gim-call-minimised:not(.gim-call-video) .gim-call-participants { display:none; }
+.gim-call-minimised.gim-call-video { width:240px; padding:0; border:0; overflow:hidden; background:#101827; }
+.gim-call-minimised.gim-call-video .gim-call-header,.gim-call-minimised .gim-call-video-waiting,.gim-call-minimised .gim-call-preview,.gim-call-minimised .gim-call-participant>span { display:none; }
+.gim-call-minimised .gim-call-participants-video { min-height:0; max-height:min(240px,55dvh); padding-bottom:0; gap:2px; }
+.gim-call-minimised .gim-call-window-control { opacity:0; }
+.gim-call-minimised:hover .gim-call-window-control,.gim-call-minimised:focus-within .gim-call-window-control { opacity:1; }
+.gim-call-minimised.gim-call-video .gim-call-window-control { color:white; background:#10182799; }
 
 .gim-appearance-heading>strong { font-size:13px; }
 .gim-appearance-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; }

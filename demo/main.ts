@@ -97,6 +97,10 @@ const aiQuestions: Record<string, string[]> = {}
 const im = createIM({
   init,
   locale: english ? 'en' : 'zh-CN',
+  locales: {
+    'zh-CN': { callIntegrationTitle: '语音和视频通话', callRequired: '请在本地运行，体验语音和视频通话。', callIntegrationHint: '' },
+    en: { callIntegrationTitle: 'Voice and video calls', callRequired: 'Run locally to try voice and video calls.', callIntegrationHint: '' },
+  },
   customerService: customerService
     ? { id: 'support', type: 'friend', username: t('在线客服', 'Customer support'), sign: t('很高兴为你服务', 'Happy to help') } : undefined,
   enableLocalStorage: true,

@@ -1,4 +1,5 @@
 import { createUuid } from './uuid'
+import { createSpeakerMonitor } from './call-speaker'
 import type { VoiceCallState } from './call'
 import type { ImCallSignal, ImCallType, ImContact, ImId, ImUser, ImVoiceCallOptions } from './types'
 import type { ImLocaleKey } from './locales'
@@ -24,6 +25,11 @@ export function createGroupCall(options: () => ImVoiceCallOptions | undefined, u
     state = { ...state, ...patch, participants: current ? [...current.members.values()].map(member => ({ ...member.contact, connected: member.peer?.connectionState === 'connected' })) : [] }
     if (!disposed) update(state)
   }
+  const speakers = createSpeakerMonitor(
+    () => current ? [...current.members.values()].flatMap(member => member.peer ? [{ peer: member.peer, contact: member.contact }] : []) : [],
+    () => { const identity = user(); return state.muted ? undefined : typeof identity === 'object' ? identity : { id: identity } },
+    speaker => publish({ speaker }),
+  )
   const send = (signal: ImCallSignal) => {
     let delivery: Promise<unknown>
     try { delivery = sendQueue ? sendQueue.then(() => options()?.sendSignal(signal)) : Promise.resolve(options()?.sendSignal(signal)) }
@@ -56,14 +62,15 @@ export function createGroupCall(options: () => ImVoiceCallOptions | undefined, u
   function finish(reason: ImLocaleKey = 'callEnded', notify = false): void {
     const call = current
     current = undefined
+    speakers.stop()
     clearTimeout(deadline)
     clearInterval(ticker)
     call?.members.forEach(closeMember)
     call?.stream?.getTracks().forEach(track => { track.onended = null; track.stop() })
     void bindVideo(localVideo)
     remoteVideos.forEach(element => { void bindVideo(element) })
-    if (call && notify) void send({ callId: call.id, id: call.contact.id, groupId: call.contact.id, action: state.phase === 'incoming' ? 'reject' : call.incoming ? 'leave' : 'end' }).catch(() => {})
-    publish({ phase: 'ended', reason, playbackBlocked: false })
+    if (call && notify) void send({ callId: call.id, id: call.contact.id, groupId: call.contact.id, action: state.phase === 'incoming' ? 'reject' : 'leave' }).catch(() => {})
+    publish({ phase: 'ended', reason, playbackBlocked: false, speaker: undefined })
   }
 
   async function playMember(call: NonNullable<typeof current>, member: Member): Promise<void> {
@@ -175,6 +182,7 @@ export function createGroupCall(options: () => ImVoiceCallOptions | undefined, u
       if (current !== call) return
       if (call.incoming) clearTimeout(deadline)
       roster(call, [...call.members.values()].map(member => member.contact))
+      if (call.type === 'voice') speakers.start()
       const started = Date.now()
       ticker = setInterval(() => {
         publish({ duration: Math.floor((Date.now() - started) / 1000) })

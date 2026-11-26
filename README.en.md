@@ -349,7 +349,9 @@ const im = await createConnectedIM({
 })
 ```
 
-The group chat toolbar can also start voice and video calls, inviting current group members with up to 4 connected participants. Members can leave individually; the initiator hanging up ends the call. Group calls use a WebRTC mesh, connecting every participant to the others, so bandwidth and device load grow with the number of participants. This suits small groups.
+Settings and call windows can be dragged. Minimised voice calls show the speaker’s avatar and name; minimised video calls show the video.
+
+The group chat toolbar can also start voice and video calls, inviting current group members without a fixed participant limit. Anyone can leave; the call ends when a joined member leaves and fewer than two remain. Group calls use a WebRTC mesh, connecting every participant to the others, so bandwidth and device load grow with the number of participants. This suits small groups.
 
 For standalone widgets, configure `voiceCall.sendSignal` to deliver signals to an authenticated peer and pass incoming signals to `im.receiveCallSignal(signal)`, preserving `type: 'video'` for video signals and `groupId`, `participants` and `group` for group calls. Supply group members with `loadGroupMembers` or `setGroupMembers`. When provided, `onCall` takes precedence over built-in calling.
 
@@ -416,7 +418,6 @@ const im = createIM({
 npm install
 npm run dev
 npm run typecheck
-npm test
 npm run build
 ```
 
